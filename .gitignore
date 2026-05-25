@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment files
+.env
+!.env.example
+
+# Local biometric/dev data
+backend/data/*.json
+backend/data/*.jpg
+backend/data/*.jpeg
+backend/data/*.png
+backend/data/*.webp
+edge/data/*.json
+edge/data/*.jpg
+edge/data/*.jpeg
+edge/data/*.png
+edge/data/*.webp
+edge/models/*
+!edge/models/.gitkeep
+
+# Flutter
+.dart_tool/
+build/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+Thumbs.db
+.DS_Store

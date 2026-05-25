@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ia_facial_postgres
+    environment:
+      POSTGRES_DB: ia_facial
+      POSTGRES_USER: ia_facial
+      POSTGRES_PASSWORD: ia_facial
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  backend:
+    build:
+      context: ..
+      dockerfile: infra/docker/backend.Dockerfile
+    container_name: ia_facial_backend
+    environment:
+      APP_NAME: IA Facial Enterprise MVP
+      ENVIRONMENT: local
+      LOCAL_DATA_DIR: /app/data
+      DATABASE_URL: postgresql+psycopg://ia_facial:ia_facial@postgres:5432/ia_facial
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../backend/data:/app/data
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+

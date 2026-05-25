@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>IA Facial Control</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">IF</span>
+        <div>
+          <strong>IA Facial</strong>
+          <small>Control empresarial</small>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-view="overview">Panel</button>
+        <button class="nav-item" data-view="attendance">Asistencia</button>
+        <button class="nav-item" data-view="faces">Rostros</button>
+        <button class="nav-item" data-view="incidents">Incidencias</button>
+      </nav>
+
+      <div class="system-card">
+        <span id="api-status-dot" class="status-dot"></span>
+        <div>
+          <strong id="api-status-label">Verificando</strong>
+          <small>Backend local</small>
+        </div>
+      </div>
+    </aside>
+
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Panel de asistencia facial</h1>
+          <p id="today-label"></p>
+        </div>
+        <div class="topbar-actions">
+          <input id="api-base" class="api-input" value="http://127.0.0.1:8000" />
+          <button id="refresh-btn" class="icon-btn" title="Actualizar">Actualizar</button>
+        </div>
+      </header>
+
+      <section class="view active" id="view-overview">
+        <div class="metrics-grid">
+          <article class="metric">
+            <span>Eventos</span>
+            <strong id="metric-events">0</strong>
+            <small>Registros recibidos</small>
+          </article>
+          <article class="metric">
+            <span>Incidencias</span>
+            <strong id="metric-incidents">0</strong>
+            <small>Casos abiertos</small>
+          </article>
+          <article class="metric">
+            <span>Rostros</span>
+            <strong id="metric-faces">0</strong>
+            <small>Personas registradas</small>
+          </article>
+          <article class="metric">
+            <span>Dispositivo</span>
+            <strong id="metric-device">Edge</strong>
+            <small id="metric-device-sub">edge-windows-001</small>
+          </article>
+        </div>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Actividad reciente</h2>
+            <span id="last-sync">Sin sincronizar</span>
+          </div>
+          <div id="recent-events" class="event-list empty">Sin eventos</div>
+        </section>
+      </section>
+
+      <section class="view" id="view-attendance">
+        <div class="two-column">
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Registrar evento</h2>
+            </div>
+            <form id="event-form" class="form-grid">
+              <label>
+                Codigo
+                <input name="person_id" value="EMP-001" required />
+              </label>
+              <label>
+                Nombre
+                <input name="employee_name" value="Carlos" />
+              </label>
+              <label>
+                Dispositivo
+                <input name="device_id" value="edge-windows-001" required />
+              </label>
+              <label>
+                Tipo
+                <select name="event_type">
+                  <option value="check_in">Entrada</option>
+                  <option value="check_out">Salida</option>
+                </select>
+              </label>
+              <button class="primary-btn" type="submit">Registrar</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Validar salida</h2>
+            </div>
+            <form id="exit-form" class="form-grid">
+              <label>
+                Codigo
+                <input name="person_id" value="EMP-001" required />
+              </label>
+              <label>
+                Nombre
+                <input name="employee_name" value="Carlos" />
+              </label>
+              <label>
+                Hora de salida
+                <input name="scheduled_exit_time" value="22:00:00" required />
+              </label>
+              <label>
+                Tolerancia
+                <input name="tolerance_minutes" type="number" min="0" max="180" value="10" />
+              </label>
+              <label class="full-row">
+                Motivo
+                <textarea name="reason" rows="3">Tengo una emergencia familiar</textarea>
+              </label>
+              <button class="primary-btn" type="submit">Validar</button>
+            </form>
+            <pre id="exit-result" class="result-box"></pre>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="view-faces">
+        <div class="two-column">
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Registrar rostro</h2>
+            </div>
+            <form id="face-register-form" class="form-grid">
+              <label>
+                Codigo
+                <input name="person_id" value="EMP-001" required />
+              </label>
+              <label>
+                Nombre
+                <input name="name" value="Carlos" required />
+              </label>
+              <label class="full-row">
+                Imagen
+                <input name="file" type="file" accept="image/*" required />
+              </label>
+              <button class="primary-btn" type="submit">Guardar rostro</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Identificar rostro</h2>
+            </div>
+            <form id="face-identify-form" class="form-grid">
+              <label class="full-row">
+                Imagen
+                <input name="file" type="file" accept="image/*" required />
+              </label>
+              <button class="primary-btn" type="submit">Identificar</button>
+            </form>
+            <pre id="face-result" class="result-box"></pre>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="view-incidents">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Incidencias</h2>
+            <button id="reload-incidents" class="ghost-btn">Recargar</button>
+          </div>
+          <div id="incident-list" class="event-list empty">Sin incidencias</div>
+        </section>
+      </section>
+
+      <div id="toast" class="toast"></div>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
+
