@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, time
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
@@ -8,25 +8,34 @@ from app.schemas.attendance import (
     AttendanceEventCreate,
     AttendanceEventListResponse,
     AttendanceEventResponse,
+    AttendanceEventDeleteResponse,
+    AttendanceEventUpdate,
+    AttendanceEventUpdateResponse,
     ExitAttemptRequest,
     ExitAttemptResponse,
     ExitPolicyResponse,
     FaceExitAttemptResponse,
     IncidentListResponse,
+    SuggestEventResponse,
 )
 from app.services.attendance_service import AttendanceService
-from app.services.attendance_event_store import LocalAttendanceEventStore
-from app.services.embedding_store import LocalEmbeddingStore
+from app.services.attendance_workflow_service import AttendanceWorkflowService
+from app.services.attendance_event_store import (
+    build_attendance_summary,
+    get_attendance_event_store,
+)
+from app.services.embedding_store import get_embedding_store
 from app.services.face_ai_service import FaceAIService
-from app.services.incident_store import LocalIncidentStore
+from app.services.incident_store import get_incident_store
 from app.utils.image_files import remove_file, save_upload_to_temp_file
 
 router = APIRouter()
-attendance_service = AttendanceService()
-incident_store = LocalIncidentStore()
-attendance_event_store = LocalAttendanceEventStore()
+incident_store = get_incident_store()
+attendance_service = AttendanceService(incident_store=incident_store)
+attendance_event_store = get_attendance_event_store()
+attendance_workflow_service = AttendanceWorkflowService(event_store=attendance_event_store)
 face_ai_service = FaceAIService()
-embedding_store = LocalEmbeddingStore()
+embedding_store = get_embedding_store()
 
 
 @router.get("/policy", response_model=ExitPolicyResponse)
@@ -49,27 +58,101 @@ def evaluate_exit_attempt(payload: ExitAttemptRequest) -> ExitAttemptResponse:
 
 @router.post("/events", response_model=AttendanceEventResponse)
 def create_attendance_event(payload: AttendanceEventCreate) -> AttendanceEventResponse:
-    event = attendance_event_store.create(payload)
-    message = (
-        "Evento duplicado ignorado para asistencia."
-        if event.duplicate
-        else "Asistencia registrada."
-    )
+    try:
+        event = attendance_event_store.create(payload)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error registrando asistencia: {exc}",
+        ) from exc
+    label = payload.employee_name or payload.person_id
+    if event.duplicate:
+        if event.event_type == "check_in":
+            message = f"{label}: ya registraste entrada hoy. Si saliste, marca salida."
+        elif event.event_type == "check_out":
+            message = f"{label}: ya registraste salida hoy."
+        else:
+            message = f"{label}: evento duplicado ignorado para asistencia."
+    elif event.event_type == "check_in":
+        message = f"{label}: entrada registrada correctamente."
+    elif event.event_type == "check_out":
+        message = f"{label}: salida registrada correctamente."
+    else:
+        message = f"{label}: asistencia registrada."
     return AttendanceEventResponse(event=event, message=message)
+
+
+@router.get("/suggest-event", response_model=SuggestEventResponse)
+def suggest_attendance_event(
+    person_id: str = Query(..., min_length=1),
+) -> SuggestEventResponse:
+    return attendance_workflow_service.suggest_next_event(person_id=person_id)
 
 
 @router.get("/events", response_model=AttendanceEventListResponse)
 def list_attendance_events(
     person_id: str | None = Query(default=None),
     device_id: str | None = Query(default=None),
-    limit: int = Query(default=100, ge=1, le=1000),
+    event_type: str | None = Query(default=None),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=1000),
 ) -> AttendanceEventListResponse:
+    if event_type and event_type not in {"check_in", "check_out"}:
+        raise HTTPException(status_code=400, detail="event_type debe ser check_in o check_out.")
+    events = attendance_event_store.list(
+        person_id=person_id,
+        device_id=device_id,
+        event_type=event_type,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+    )
     return AttendanceEventListResponse(
-        events=attendance_event_store.list(
-            person_id=person_id,
-            device_id=device_id,
-            limit=limit,
-        )
+        events=events,
+        summary=build_attendance_summary(events),
+    )
+
+
+@router.get("/events/{event_id}", response_model=AttendanceEventResponse)
+def get_attendance_event(event_id: str) -> AttendanceEventResponse:
+    event = attendance_event_store.get(event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail=f"No existe evento '{event_id}'.")
+    return AttendanceEventResponse(event=event, message="Evento encontrado.")
+
+
+@router.patch("/events/{event_id}", response_model=AttendanceEventUpdateResponse)
+def update_attendance_event(
+    event_id: str,
+    payload: AttendanceEventUpdate,
+) -> AttendanceEventUpdateResponse:
+    try:
+        event = attendance_event_store.update(event_id, payload)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return AttendanceEventUpdateResponse(
+        event=event,
+        message="Marca de asistencia corregida correctamente.",
+    )
+
+
+@router.delete("/events/{event_id}", response_model=AttendanceEventDeleteResponse)
+def delete_attendance_event(event_id: str) -> AttendanceEventDeleteResponse:
+    existing = attendance_event_store.get(event_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"No existe evento '{event_id}'.")
+    try:
+        attendance_event_store.delete(event_id, target=existing)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    label = existing.employee_name or existing.person_id
+    tipo = "salida" if existing.event_type == "check_out" else "entrada"
+    return AttendanceEventDeleteResponse(
+        event_id=event_id,
+        message=f"{label}: marca de {tipo} eliminada.",
     )
 
 
@@ -88,7 +171,7 @@ async def evaluate_exit_attempt_with_face(
         match = embedding_store.find_best_match(
             embedding=embedding,
             threshold=settings.face_match_threshold,
-            model=settings.deepface_model,
+            model=settings.active_face_model,
         )
         if match is None:
             return FaceExitAttemptResponse(

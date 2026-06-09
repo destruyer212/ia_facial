@@ -101,8 +101,49 @@ class AttendanceEventResponse(BaseModel):
     message: str
 
 
+class AttendanceReportSummary(BaseModel):
+    total: int = 0
+    check_ins: int = 0
+    check_outs: int = 0
+    duplicates: int = 0
+    rejected: int = 0
+
+
 class AttendanceEventListResponse(BaseModel):
     events: list[AttendanceEvent]
+    summary: AttendanceReportSummary = Field(default_factory=AttendanceReportSummary)
+
+
+class AttendanceEventUpdate(BaseModel):
+    employee_name: str | None = None
+    device_id: str | None = None
+    event_type: str | None = None
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    captured_at: datetime | None = None
+    source: str | None = None
+    evidence_ref: str | None = None
+    accepted: bool | None = None
+    duplicate: bool | None = None
+
+
+class SuggestEventResponse(BaseModel):
+    person_id: str
+    suggested_event_type: str
+    can_register: bool
+    shift_status: str
+    reason: str
+    policy: ExitPolicyResponse
+    last_event_today: AttendanceEvent | None = None
+
+
+class AttendanceEventUpdateResponse(BaseModel):
+    event: AttendanceEvent
+    message: str
+
+
+class AttendanceEventDeleteResponse(BaseModel):
+    event_id: str
+    message: str
 
 
 class IncidentListResponse(BaseModel):
