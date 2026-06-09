@@ -115,6 +115,7 @@ Ver ejemplo en [mobile/flutter_client/lib/api/face_api_client.dart](C:/SpringPro
 - [Seguridad](C:/SpringProjectsnew/ia_facial/docs/SECURITY.md)
 - [Flujo Android](C:/SpringProjectsnew/ia_facial/docs/ANDROID_FLOW.md)
 - [Cloud](C:/SpringProjectsnew/ia_facial/docs/CLOUD.md)
+- [Supabase + R2 v0/v1](C:/SpringProjectsnew/ia_facial/docs/SUPABASE_R2_V0_V1.md)
 - [SaaS](C:/SpringProjectsnew/ia_facial/docs/SAAS.md)
 - [Setup Windows](C:/SpringProjectsnew/ia_facial/docs/WINDOWS_SETUP.md)
 - [Control laboral inteligente](C:/SpringProjectsnew/ia_facial/docs/WORKFORCE_CONTROL_PLATFORM.md)
