@@ -10,18 +10,26 @@ class OpenCVService:
         cascade_path = Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
         self.face_cascade = cv2.CascadeClassifier(str(cascade_path))
 
-    def detect_faces(self, image_path: Path) -> FaceDetectionResponse:
+    def detect_faces(self, image_path: Path, *, relaxed: bool = False) -> FaceDetectionResponse:
         image = cv2.imread(str(image_path))
         if image is None:
             raise ValueError("No se pudo leer la imagen enviada.")
 
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        faces = self.face_cascade.detectMultiScale(
-            gray,
-            scaleFactor=1.1,
-            minNeighbors=5,
-            minSize=(60, 60),
-        )
+        if relaxed:
+            faces = self.face_cascade.detectMultiScale(
+                gray,
+                scaleFactor=1.05,
+                minNeighbors=4,
+                minSize=(35, 35),
+            )
+        else:
+            faces = self.face_cascade.detectMultiScale(
+                gray,
+                scaleFactor=1.1,
+                minNeighbors=5,
+                minSize=(60, 60),
+            )
 
         height, width = image.shape[:2]
         boxes = [
