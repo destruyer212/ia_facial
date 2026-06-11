@@ -41,6 +41,12 @@ class LocalEmbeddingStore:
         embedding: list[float],
         email: str | None = None,
         pose_type: str = "front",
+        *,
+        employee_code: str | None = None,
+        area_code: str | None = None,
+        position_code: str | None = None,
+        area_name: str | None = None,
+        position_name: str | None = None,
     ) -> StoredFaceEmbedding:
         person_id = person_id.strip()
         pose_type = pose_type.strip() or "front"
@@ -64,7 +70,11 @@ class LocalEmbeddingStore:
             created_at=existing.created_at if existing else datetime.now(UTC),
             image_url=existing.image_url if existing and pose_type == "front" else None,
             email=(email or (existing.email if existing else None)),
-            employee_code=person_id,
+            employee_code=employee_code or (existing.employee_code if existing else person_id),
+            area_code=area_code or (existing.area_code if existing else None),
+            position_code=position_code or (existing.position_code if existing else None),
+            area_name=area_name or (existing.area_name if existing else None),
+            position_name=position_name or (existing.position_name if existing else None),
             is_active=existing.is_active if existing else True,
             embedding_count=0,
         )
@@ -187,6 +197,10 @@ class LocalEmbeddingStore:
                 ),
                 email=record.email,
                 employee_code=record.employee_code or record.person_id,
+                area_code=record.area_code,
+                area_name=record.area_name,
+                position_code=record.position_code,
+                position_name=record.position_name,
                 is_active=record.is_active,
                 embedding_count=counts.get(record.person_id, 1),
             )
@@ -234,6 +248,27 @@ class LocalEmbeddingStore:
             raise LookupError(f"No existe empleado con person_id='{person_id}'.")
         return public
 
+    def delete_employee(self, person_id: str) -> dict:
+        person_id = person_id.strip()
+        records = self._load()
+        matched = [record for record in records if record.person_id == person_id]
+        if not matched:
+            raise LookupError(f"No existe empleado con person_id='{person_id}'.")
+        name = matched[0].name
+        remaining = [record for record in records if record.person_id != person_id]
+        self._save(remaining)
+        portraits_deleted = delete_local_portraits(self.portraits_dir, person_id)
+        return {
+            "person_id": person_id,
+            "name": name,
+            "embeddings_deleted": len(matched),
+            "portraits_deleted": portraits_deleted,
+            "attendance_events_deleted": 0,
+            "incidents_deleted": 0,
+            "liveness_checks_deleted": 0,
+            "r2_objects_deleted": 0,
+        }
+
     def _load(self) -> list[StoredFaceEmbedding]:
         if not self.path.exists():
             return []
@@ -272,6 +307,12 @@ class SupabaseEmbeddingStore:
         embedding: list[float],
         email: str | None = None,
         pose_type: str = "front",
+        *,
+        employee_code: str | None = None,
+        area_code: str | None = None,
+        position_code: str | None = None,
+        area_name: str | None = None,
+        position_name: str | None = None,
     ) -> StoredFaceEmbedding:
         person_id = person_id.strip()
         name = name.strip()
@@ -286,6 +327,9 @@ class SupabaseEmbeddingStore:
                 person_id=person_id,
                 full_name=name,
                 email=email,
+                employee_code=employee_code or person_id,
+                area_code=area_code,
+                position_code=position_code,
             )
             with conn.cursor() as cur:
                 cur.execute(
@@ -320,6 +364,11 @@ class SupabaseEmbeddingStore:
             embedding=embedding,
             pose_type=pose_type,
             created_at=datetime.now(UTC),
+            employee_code=employee_code or person_id,
+            area_code=area_code,
+            position_code=position_code,
+            area_name=area_name,
+            position_name=position_name,
             embedding_count=self.count_person_embeddings(person_id),
         )
 
@@ -470,10 +519,20 @@ class SupabaseEmbeddingStore:
                         select count(*)
                         from public.face_embeddings fe2
                         where fe2.org_id = fe.org_id and fe2.person_id = fe.person_id
-                      ) as embedding_count
+                      ) as embedding_count,
+                      p.area_code,
+                      p.position_code,
+                      oa.name as area_name,
+                      op.name as position_name
                     from public.face_embeddings fe
-                    join public.persons p on p.person_id = fe.person_id
-                    left join public.face_assets fa on fa.person_id = fe.person_id
+                    join public.persons p on p.person_id = fe.person_id and p.org_id = fe.org_id
+                    left join public.face_assets fa on fa.person_id = fe.person_id and fa.org_id = fe.org_id
+                    left join public.org_areas oa
+                      on oa.org_id = p.org_id and oa.area_code = p.area_code
+                    left join public.org_positions op
+                      on op.org_id = p.org_id
+                     and op.area_code = p.area_code
+                     and op.position_code = p.position_code
                     where fe.org_id = %s
                     order by fe.person_id, fa.created_at desc nulls last, fe.created_at desc
                     """,
@@ -498,6 +557,10 @@ class SupabaseEmbeddingStore:
                     created_at=row[6],
                     image_url=image_url,
                     embedding_count=embedding_count,
+                    area_code=row[9],
+                    position_code=row[10],
+                    area_name=row[11],
+                    position_name=row[12],
                 )
             )
         return sorted(faces, key=lambda item: item.created_at, reverse=True)
@@ -547,6 +610,92 @@ class SupabaseEmbeddingStore:
         if public is None:
             raise LookupError(f"No existe empleado con person_id='{person_id}'.")
         return public
+
+    def delete_employee(self, person_id: str) -> dict:
+        person_id = person_id.strip()
+        with get_conn() as conn:
+            org_id = resolve_org_id(conn)
+            if not person_exists(conn, org_id=org_id, person_id=person_id):
+                raise LookupError(f"No existe empleado con person_id='{person_id}'.")
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select full_name
+                    from public.persons
+                    where person_id = %s and org_id = %s
+                    """,
+                    (person_id, org_id),
+                )
+                name_row = cur.fetchone()
+                name = name_row[0] if name_row else person_id
+
+                cur.execute(
+                    """
+                    select r2_key
+                    from public.face_assets
+                    where person_id = %s and org_id = %s
+                    """,
+                    (person_id, org_id),
+                )
+                r2_keys = [row[0] for row in cur.fetchall() if row[0]]
+
+                cur.execute(
+                    "select count(*) from public.face_embeddings where person_id = %s and org_id = %s",
+                    (person_id, org_id),
+                )
+                embeddings_deleted = int(cur.fetchone()[0])
+
+                cur.execute(
+                    "select count(*) from public.attendance_events where person_id = %s and org_id = %s",
+                    (person_id, org_id),
+                )
+                attendance_events_deleted = int(cur.fetchone()[0])
+
+                cur.execute(
+                    "select count(*) from public.attendance_incidents where person_id = %s and org_id = %s",
+                    (person_id, org_id),
+                )
+                incidents_deleted = int(cur.fetchone()[0])
+
+                cur.execute(
+                    "select count(*) from public.liveness_checks where person_id = %s and org_id = %s",
+                    (person_id, org_id),
+                )
+                liveness_checks_deleted = int(cur.fetchone()[0])
+
+                cur.execute(
+                    "delete from public.liveness_checks where person_id = %s and org_id = %s",
+                    (person_id, org_id),
+                )
+                cur.execute(
+                    "delete from public.persons where person_id = %s and org_id = %s",
+                    (person_id, org_id),
+                )
+
+        portraits_deleted = delete_local_portraits(self.portraits_dir, person_id)
+        return {
+            "person_id": person_id,
+            "name": name,
+            "embeddings_deleted": embeddings_deleted,
+            "portraits_deleted": portraits_deleted,
+            "attendance_events_deleted": attendance_events_deleted,
+            "incidents_deleted": incidents_deleted,
+            "liveness_checks_deleted": liveness_checks_deleted,
+            "r2_keys": r2_keys,
+            "r2_objects_deleted": 0,
+        }
+
+
+def delete_local_portraits(portraits_dir: Path, person_id: str) -> int:
+    safe_id = sanitize_person_id(person_id)
+    deleted = 0
+    for path in portraits_dir.glob(f"{safe_id}*.jpg"):
+        try:
+            path.unlink()
+            deleted += 1
+        except OSError:
+            continue
+    return deleted
 
 
 def get_embedding_store():

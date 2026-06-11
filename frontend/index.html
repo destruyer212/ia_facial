@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <title>IA Facial · Control empresarial</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -10,7 +11,7 @@
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=2026061101" />
   </head>
   <body>
     <aside class="sidebar">
@@ -32,13 +33,29 @@
           <span class="nav-icon" aria-hidden="true">◫</span>
           <span>Panel</span>
         </button>
+        <button class="nav-item" data-view="organization">
+          <span class="nav-icon" aria-hidden="true">OR</span>
+          <span>Organizacion</span>
+        </button>
+        <button class="nav-item" data-view="areas">
+          <span class="nav-icon" aria-hidden="true">AC</span>
+          <span>Areas y cargos</span>
+        </button>
+        <button class="nav-item" data-view="schedules">
+          <span class="nav-icon" aria-hidden="true">HT</span>
+          <span>Horarios y turnos</span>
+        </button>
         <button class="nav-item" data-view="attendance">
-          <span class="nav-icon" aria-hidden="true">✎</span>
-          <span>Asistencia</span>
+          <span class="nav-icon" aria-hidden="true">◎</span>
+          <span>Marcacion facial</span>
         </button>
         <button class="nav-item" data-view="register">
           <span class="nav-icon" aria-hidden="true">◎</span>
           <span>Registrar rostro</span>
+        </button>
+        <button class="nav-item" data-view="preregistration">
+          <span class="nav-icon" aria-hidden="true">TK</span>
+          <span>Trabajadores con Token</span>
         </button>
         <button class="nav-item" data-view="scan">
           <span class="nav-icon" aria-hidden="true">▣</span>
@@ -55,6 +72,14 @@
         <button class="nav-item" data-view="incidents">
           <span class="nav-icon" aria-hidden="true">⚠</span>
           <span>Incidencias</span>
+        </button>
+        <button class="nav-item" data-view="devices">
+          <span class="nav-icon" aria-hidden="true">DV</span>
+          <span>Dispositivos</span>
+        </button>
+        <button class="nav-item" data-view="settings">
+          <span class="nav-icon" aria-hidden="true">CF</span>
+          <span>Configuracion</span>
         </button>
       </nav>
 
@@ -86,6 +111,8 @@
           </button>
         </div>
       </header>
+
+      <div id="admin-warnings" class="admin-warning hidden"></div>
 
       <section class="view active" id="view-overview">
         <div class="metrics-grid">
@@ -135,33 +162,405 @@
             <div class="empty-state">
               <span class="empty-icon">📭</span>
               <p>Sin eventos todavia</p>
-              <small>Las marcas apareceran aqui al escanear o registrar manualmente</small>
+              <small>Las marcas apareceran aqui al escanear con reconocimiento facial</small>
             </div>
           </div>
         </section>
       </section>
 
-      <section class="view" id="view-attendance">
+      <section class="view" id="view-organization">
+        <div class="admin-grid">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Datos de empresa</h2>
+                <p class="panel-desc">Identidad comercial, RUC, direccion y sedes</p>
+              </div>
+              <button id="reload-admin" class="ghost-btn" type="button">Recargar</button>
+            </div>
+            <form id="organization-form" class="form-grid">
+              <label>
+                Codigo
+                <input name="code" readonly />
+              </label>
+              <label>
+                RUC
+                <input name="ruc" placeholder="20123456789" />
+              </label>
+              <label class="full-row">
+                Nombre comercial
+                <input name="name" required />
+              </label>
+              <label class="full-row">
+                Logo URL
+                <input name="logo_url" placeholder="https://..." />
+              </label>
+              <label class="full-row">
+                Direccion principal
+                <input name="address" placeholder="Av. Principal 123" />
+              </label>
+              <label>
+                Zona horaria
+                <input name="timezone" value="America/Lima" required />
+              </label>
+              <label class="full-row">
+                Sedes / sucursales
+                <textarea name="sites" rows="5" placeholder="HQ | Oficina Principal | Av. Principal 123 | active"></textarea>
+                <small class="field-hint">Una sede por linea: CODIGO | Nombre | Direccion | active/inactive</small>
+              </label>
+              <button class="primary-btn full-row" type="submit">Guardar organizacion</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Resumen</h2>
+                <p class="panel-desc">Datos visibles para operacion interna</p>
+              </div>
+            </div>
+            <div id="organization-summary" class="admin-summary"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="view-areas">
         <div class="two-column">
           <section class="panel">
             <div class="panel-header">
               <div>
-                <h2>Registrar evento</h2>
-                <p class="panel-desc">Marca manual de entrada o salida</p>
+                <h2>Crear o editar area</h2>
+                <p class="panel-desc">Codigos como GG, AD, MS</p>
               </div>
             </div>
+            <form id="area-form" class="form-grid compact-admin-form">
+              <label>
+                Codigo
+                <input name="code" maxlength="2" placeholder="GG" required />
+              </label>
+              <label>
+                Orden
+                <input name="sort_order" type="number" value="0" />
+              </label>
+              <label class="full-row">
+                Nombre
+                <input name="name" placeholder="Gerencia General" required />
+              </label>
+              <label class="checkbox-row full-row">
+                <input name="is_active" type="checkbox" checked />
+                Area activa
+              </label>
+              <button class="primary-btn full-row" type="submit">Guardar area</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Crear o editar cargo</h2>
+                <p class="panel-desc">Codigos usados en el correlativo del empleado</p>
+              </div>
+            </div>
+            <form id="position-form" class="form-grid compact-admin-form">
+              <label>
+                Area
+                <select name="area_code" id="admin-position-area" required>
+                  <option value="">Selecciona area...</option>
+                </select>
+              </label>
+              <label>
+                Codigo
+                <input name="code" maxlength="2" placeholder="GE" required />
+              </label>
+              <label class="full-row">
+                Nombre
+                <input name="name" placeholder="Gerente General" required />
+              </label>
+              <label>
+                Orden
+                <input name="sort_order" type="number" value="0" />
+              </label>
+              <label class="checkbox-row">
+                <input name="is_active" type="checkbox" checked />
+                Cargo activo
+              </label>
+              <button class="primary-btn full-row" type="submit">Guardar cargo</button>
+            </form>
+          </section>
+        </div>
+
+        <div class="two-column admin-lists">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Areas</h2>
+                <p class="panel-desc">Activa o desactiva unidades de la empresa</p>
+              </div>
+            </div>
+            <div id="admin-areas-list" class="admin-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Cargos</h2>
+                <p class="panel-desc">Cargos disponibles por area</p>
+              </div>
+            </div>
+            <div id="admin-positions-list" class="admin-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="view-schedules">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Horarios y Turnos</h2>
+              <p class="panel-desc">Turnos fijos TM/TT con reglas automaticas de tardanza y salida anticipada</p>
+            </div>
+            <button id="reload-schedules" class="ghost-btn" type="button">Recargar</button>
+          </div>
+          <div id="shift-cards" class="shift-cards"></div>
+        </section>
+
+        <div class="admin-grid admin-lists">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Asignar Turno</h2>
+                <p class="panel-desc">Vincula el empleado con TM o TT</p>
+              </div>
+            </div>
+            <form id="shift-assignment-form" class="form-grid">
+              <label class="full-row">
+                Empleado
+                <select name="person_id" id="shift-employee-select" required>
+                  <option value="">Selecciona empleado...</option>
+                </select>
+              </label>
+              <label class="full-row">
+                Turno
+                <select name="shift_code" id="shift-code-select" required>
+                  <option value="">Selecciona turno...</option>
+                </select>
+              </label>
+              <button class="primary-btn full-row" type="submit">Asignar turno</button>
+            </form>
+
+            <div class="shift-rules-wrap">
+              <h3>Reglas automaticas</h3>
+              <div id="shift-rules" class="admin-list"></div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Empleados por Turno</h2>
+                <p class="panel-desc">Distribucion actual por TM, TT y sin turno</p>
+              </div>
+            </div>
+            <div id="employees-by-shift" class="shift-groups"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="view-devices">
+        <div class="admin-grid">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Registrar dispositivo</h2>
+                <p class="panel-desc">Camaras, kioskos y PCs que envian marcas</p>
+              </div>
+            </div>
+            <form id="device-form" class="form-grid">
+              <label>
+                ID dispositivo
+                <input name="device_id" placeholder="edge-windows-001" required />
+              </label>
+              <label>
+                Tipo
+                <select name="kind">
+                  <option value="edge">Edge</option>
+                  <option value="web">Web</option>
+                  <option value="kiosk">Kiosko</option>
+                  <option value="mobile">Movil</option>
+                </select>
+              </label>
+              <label class="full-row">
+                Nombre
+                <input name="label" placeholder="Camara puerta principal" required />
+              </label>
+              <label class="full-row">
+                Ubicacion
+                <input name="location" placeholder="Oficina Principal" />
+              </label>
+              <label class="checkbox-row full-row">
+                <input name="is_active" type="checkbox" checked />
+                Dispositivo activo
+              </label>
+              <button class="primary-btn full-row" type="submit">Guardar dispositivo</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Estado de dispositivos</h2>
+                <p class="panel-desc">Actividad reciente y estado operativo</p>
+              </div>
+            </div>
+            <div id="admin-devices-list" class="admin-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="view-settings">
+        <div class="admin-grid">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Parametros operativos</h2>
+                <p class="panel-desc">Reconocimiento, liveness, voz y politicas base</p>
+              </div>
+            </div>
+            <form id="system-settings-form" class="form-grid">
+              <label>
+                Dispositivo web
+                <input name="camera_device_id" placeholder="dashboard-camera-001" required />
+              </label>
+              <label>
+                Cooldown asistencia (ms)
+                <input name="attendance_cooldown_ms" type="number" min="1000" max="120000" step="1000" />
+              </label>
+              <label>
+                Umbral registro
+                <input name="face_match_threshold" type="number" min="0.05" max="1" step="0.01" />
+              </label>
+              <label>
+                Umbral escaneo
+                <input name="face_scan_match_threshold" type="number" min="0.05" max="1" step="0.01" />
+              </label>
+              <label>
+                Hora salida base
+                <input name="default_scheduled_exit_time" type="time" />
+              </label>
+              <label>
+                Tolerancia salida (min)
+                <input name="default_exit_tolerance_minutes" type="number" min="0" max="240" />
+              </label>
+              <label class="checkbox-row">
+                <input name="liveness_enabled" type="checkbox" />
+                Liveness activo por defecto
+              </label>
+              <label class="checkbox-row">
+                <input name="voice_enabled" type="checkbox" />
+                Voz en espanol activa
+              </label>
+              <button class="primary-btn full-row" type="submit">Guardar configuracion</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Runtime</h2>
+                <p class="panel-desc">Modo de datos y almacenamiento actual</p>
+              </div>
+            </div>
+            <div id="settings-runtime" class="admin-summary"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="view-attendance">
+        <section class="panel attendance-hero">
+          <div class="attendance-hero-copy">
+            <span class="attendance-hero-kicker">Operacion biometrica</span>
+            <h2>Marcacion facial en tiempo real</h2>
+            <p>
+              La asistencia se registra por reconocimiento facial, no por formularios manuales.
+              Usa el kiosko web, la app movil o dispositivos edge autorizados.
+            </p>
+            <div class="attendance-hero-actions">
+              <button id="attendance-open-scan" class="primary-btn" type="button">Abrir escaner facial</button>
+              <button id="attendance-open-reports" class="ghost-btn" type="button">Ver reportes</button>
+            </div>
+          </div>
+          <div class="attendance-hero-stats">
+            <article>
+              <span>Entradas hoy</span>
+              <strong id="attendance-checkins-today">0</strong>
+            </article>
+            <article>
+              <span>Salidas hoy</span>
+              <strong id="attendance-checkouts-today">0</strong>
+            </article>
+            <article>
+              <span>Rostros activos</span>
+              <strong id="attendance-faces-active">0</strong>
+            </article>
+          </div>
+        </section>
+
+        <div class="attendance-channel-grid">
+          <article class="attendance-channel">
+            <span class="attendance-channel-icon">PC</span>
+            <strong>Kiosko web</strong>
+            <small>Camara + anti-spoofing + entrada/salida guiada</small>
+            <button class="ghost-btn" type="button" data-open-view="scan">Ir a escanear</button>
+          </article>
+          <article class="attendance-channel">
+            <span class="attendance-channel-icon">APP</span>
+            <strong>App movil</strong>
+            <small>Registro facial por token y marcacion desde Android</small>
+            <button class="ghost-btn" type="button" data-open-view="preregistration">Gestionar tokens</button>
+          </article>
+          <article class="attendance-channel">
+            <span class="attendance-channel-icon">EDGE</span>
+            <strong>Dispositivos edge</strong>
+            <small>Camaras y PCs autorizadas para la operacion</small>
+            <button class="ghost-btn" type="button" data-open-view="devices">Ver dispositivos</button>
+          </article>
+        </div>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Actividad en vivo</h2>
+              <p class="panel-desc">Ultimas marcas biometricas recibidas por la plataforma</p>
+            </div>
+            <button id="attendance-refresh-events" class="ghost-btn" type="button">Actualizar</button>
+          </div>
+          <div id="attendance-live-events" class="event-list empty">
+            <div class="empty-state">
+              <span class="empty-icon">◎</span>
+              <p>Sin marcas biometricas todavia</p>
+              <small>Inicia el escaner facial para registrar la primera entrada</small>
+            </div>
+          </div>
+        </section>
+
+        <details class="panel attendance-dev-tools">
+          <summary>Herramientas de contingencia (solo desarrollo)</summary>
+          <p class="panel-desc">
+            Registro manual legacy para pruebas de API. No usar en operacion real de empresa.
+          </p>
+          <div class="two-column">
             <form id="event-form" class="form-grid">
               <label>
                 Codigo
-                <input name="person_id" value="EMP-001" required />
+                <input name="person_id" placeholder="GG-GE-0001" required />
               </label>
               <label>
                 Nombre
-                <input name="employee_name" value="Carlos" />
+                <input name="employee_name" placeholder="Opcional" />
               </label>
               <label>
                 Dispositivo
-                <input name="device_id" value="edge-windows-001" required />
+                <input name="device_id" placeholder="edge-windows-001" required />
               </label>
               <label>
                 Tipo
@@ -170,25 +569,17 @@
                   <option value="check_out">Salida</option>
                 </select>
               </label>
-              <button class="primary-btn full-row" type="submit">Registrar asistencia</button>
+              <button class="ghost-btn full-row" type="submit">Simular evento API</button>
             </form>
-          </section>
 
-          <section class="panel">
-            <div class="panel-header">
-              <div>
-                <h2>Validar salida anticipada</h2>
-                <p class="panel-desc">Evalua salidas fuera de horario con motivo</p>
-              </div>
-            </div>
             <form id="exit-form" class="form-grid">
               <label>
                 Codigo
-                <input name="person_id" value="EMP-001" required />
+                <input name="person_id" placeholder="GG-GE-0001" required />
               </label>
               <label>
                 Nombre
-                <input name="employee_name" value="Carlos" />
+                <input name="employee_name" placeholder="Opcional" />
               </label>
               <label>
                 Hora de salida
@@ -200,96 +591,233 @@
               </label>
               <label class="full-row">
                 Motivo
-                <textarea name="reason" rows="3">Tengo una emergencia familiar</textarea>
+                <textarea name="reason" rows="3" placeholder="Motivo de salida anticipada"></textarea>
               </label>
-              <button class="primary-btn full-row" type="submit">Validar salida</button>
+              <button class="ghost-btn full-row" type="submit">Simular validacion API</button>
             </form>
-            <pre id="exit-result" class="result-box"></pre>
-          </section>
-        </div>
+          </div>
+          <pre id="exit-result" class="result-box">Sin pruebas de contingencia.</pre>
+        </details>
       </section>
 
       <section class="view" id="view-register">
-        <section class="panel narrow-panel">
+        <section class="panel register-panel">
           <div class="panel-header">
             <div>
               <h2>Registrar rostro</h2>
-              <p class="panel-desc">Perfil facial multi-pose para reconocimiento robusto</p>
+              <p class="panel-desc">Escaneo facial en vivo con malla 3D y validacion automatica</p>
             </div>
           </div>
           <div class="info-banner">
-            <strong>Registro multi-foto</strong>
+            <strong>Registro jerarquico Area + Cargo</strong>
             <p>
-              Cada pose genera un embedding facial. Obligatorias: frontal, giro izquierda y derecha.
-              El proceso tarda 1–3 min — no pulses el boton varias veces.
+              Selecciona el area y cargo del colaborador. El codigo empleado se genera automaticamente
+              (ej. GG-GE-0001, MS-PL-0003). Luego escanea el rostro en vivo con MediaPipe y el servidor
+              guarda los embeddings con DeepFace.
             </p>
           </div>
-          <form id="face-register-form" class="form-grid">
+
+          <div class="register-layout">
+            <form id="face-register-form" class="form-grid register-form-side">
             <label>
-              Codigo empleado
-              <input name="person_id" value="EMP-001" required />
+              Area
+              <select name="area_code" id="register-area-code" required>
+                <option value="">Selecciona un area...</option>
+              </select>
+            </label>
+            <label>
+              Cargo
+              <select name="position_code" id="register-position-code" required disabled>
+                <option value="">Primero elige un area...</option>
+              </select>
+            </label>
+            <label class="full-row">
+              Turno
+              <select name="shift_code" id="register-shift-code">
+                <option value="">Sin turno asignado...</option>
+              </select>
+              <small class="field-hint">Ej: TM - Turno Manana (08:00 - 16:00) o TT - Turno Tarde (14:00 - 22:00)</small>
+            </label>
+            <label class="full-row register-code-field">
+              Codigo empleado (automatico)
+              <input
+                id="register-employee-code"
+                type="text"
+                readonly
+                placeholder="Selecciona area y cargo"
+                aria-live="polite"
+              />
+              <small class="field-hint">Formato AREA-CARGO-CORRELATIVO. Ej: GG-GE-0001, MS-PL-0003</small>
             </label>
             <label>
               Nombre completo
-              <input name="name" value="Carlos" required />
+              <input name="name" placeholder="Nombre y apellidos" required />
             </label>
             <label class="full-row">
               Correo
               <input name="email" type="email" placeholder="nombre@empresa.com" />
             </label>
-            <div class="pose-grid full-row">
-              <label class="pose-slot required">
-                <span class="pose-label">Frontal</span>
-                <div class="pose-preview" aria-hidden="true"></div>
-                <span class="pose-file-label">Sin archivo</span>
-                <input name="front" type="file" accept="image/*" capture="user" required />
-              </label>
-              <label class="pose-slot required">
-                <span class="pose-label">Giro izquierda</span>
-                <div class="pose-preview" aria-hidden="true"></div>
-                <span class="pose-file-label">Sin archivo</span>
-                <input name="left" type="file" accept="image/*" capture="user" required />
-              </label>
-              <label class="pose-slot required">
-                <span class="pose-label">Giro derecha</span>
-                <div class="pose-preview" aria-hidden="true"></div>
-                <span class="pose-file-label">Sin archivo</span>
-                <input name="right" type="file" accept="image/*" capture="user" required />
-              </label>
-              <label class="pose-slot optional">
-                <span class="pose-label">Con lentes</span>
-                <div class="pose-preview" aria-hidden="true"></div>
-                <span class="pose-file-label">Opcional</span>
-                <input name="with_glasses" type="file" accept="image/*" capture="user" />
-              </label>
-              <label class="pose-slot optional">
-                <span class="pose-label">Sin lentes</span>
-                <div class="pose-preview" aria-hidden="true"></div>
-                <span class="pose-file-label">Opcional</span>
-                <input name="without_glasses" type="file" accept="image/*" capture="user" />
-              </label>
+
+            <div class="register-scan-meta full-row">
+              <p id="register-scan-step" class="register-scan-step">Paso 1/3: Frontal</p>
+              <p id="register-scan-hint" class="register-scan-hint">Pulsa iniciar escaneo y centra tu rostro en el circulo</p>
+              <div id="register-scan-progress" class="register-scan-progress">
+                <span class="register-scan-chip">Frontal</span>
+                <span class="register-scan-chip">Giro izquierda</span>
+                <span class="register-scan-chip">Giro derecha</span>
+              </div>
+            </div>
+
+            <div class="register-hidden-inputs" hidden aria-hidden="true">
+              <input name="front" type="file" accept="image/jpeg" />
+              <input name="left" type="file" accept="image/jpeg" />
+              <input name="right" type="file" accept="image/jpeg" />
+              <input name="with_glasses" type="file" accept="image/jpeg" />
+              <input name="without_glasses" type="file" accept="image/jpeg" />
             </div>
             <div id="register-files-summary" class="register-files-summary" aria-live="polite">
-              Sube las 3 fotos obligatorias: frontal, giro izquierda y giro derecha.
+              Pulsa Iniciar escaneo facial. El sistema capturara frontal, izquierda y derecha automaticamente.
             </div>
+            <p class="register-build-tag" id="register-build-tag" aria-hidden="true">Build 2026061101</p>
             <div id="register-status" class="register-status idle" aria-live="polite">
               <span class="register-status-icon" aria-hidden="true">○</span>
               <div>
                 <strong id="register-status-title">Listo para guardar</strong>
-                <small id="register-status-detail">Completa los datos y las fotos obligatorias.</small>
+                <small id="register-status-detail">Completa los datos y pulsa Iniciar escaneo facial.</small>
                 <div id="register-progress" class="register-progress hidden">
                   <div id="register-progress-bar" class="register-progress-bar"></div>
                 </div>
               </div>
             </div>
-            <button id="face-register-submit" class="primary-btn full-row" type="submit">
+            <button
+              id="register-start-scan-btn"
+              class="primary-btn full-row"
+              type="button"
+              onclick="window.startRegisterFaceScan && window.startRegisterFaceScan(); return false;"
+            >
+              Iniciar escaneo facial
+            </button>
+            <button id="face-register-submit" class="ghost-btn full-row hidden" type="submit">
               Guardar perfil facial
             </button>
           </form>
+
+            <div class="register-camera-side">
+              <div class="register-camera-wrap">
+                <video id="register-camera-preview" class="register-camera-preview" autoplay muted playsinline></video>
+                <canvas id="register-camera-mesh" class="register-camera-mesh"></canvas>
+                <div id="register-face-circle" class="register-face-circle" aria-hidden="true"></div>
+                <div class="register-scan-line" aria-hidden="true"></div>
+              </div>
+              <div class="register-tech-box">
+                <strong>IA utilizada</strong>
+                <ul>
+                  <li><b>Navegador:</b> MediaPipe Face Landmarker (puntos azules en vivo)</li>
+                  <li><b>Servidor:</b> OpenCV + DeepFace (embeddings Facenet512)</li>
+                  <li><b>Nube:</b> Supabase + Cloudflare R2</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
           <details class="register-technical">
             <summary>Detalle tecnico (respuesta del servidor)</summary>
             <pre id="face-register-result" class="result-box">Sin registros aun.</pre>
           </details>
+        </section>
+      </section>
+
+      <section class="view" id="view-preregistration">
+        <div class="admin-grid">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Pre-registro de trabajadores</h2>
+                <p class="panel-desc">Alta sin rostro, codigo automatico y token enviado por Gmail</p>
+              </div>
+            </div>
+            <form id="pre-register-form" class="form-grid">
+              <label class="full-row">
+                Nombre completo
+                <input name="name" placeholder="Juan Perez" required />
+              </label>
+              <label>
+                DNI
+                <input name="dni" minlength="4" maxlength="20" placeholder="12345678" required />
+              </label>
+              <label>
+                Correo empresarial
+                <input name="email" type="email" placeholder="nombre@empresa.com" required />
+              </label>
+              <label>
+                Area
+                <select name="area_code" id="pre-register-area-code" required>
+                  <option value="">Selecciona area...</option>
+                </select>
+              </label>
+              <label>
+                Cargo
+                <select name="position_code" id="pre-register-position-code" required disabled>
+                  <option value="">Primero elige un area...</option>
+                </select>
+              </label>
+              <label>
+                Turno asignado
+                <select name="shift_code" id="pre-register-shift-code" required>
+                  <option value="">Selecciona turno...</option>
+                </select>
+              </label>
+              <label>
+                Vigencia del token
+                <select name="token_expires_hours">
+                  <option value="48">48 horas</option>
+                  <option value="168">7 dias</option>
+                </select>
+              </label>
+              <button class="primary-btn full-row" type="submit">Crear y enviar token</button>
+            </form>
+            <pre id="pre-register-result" class="result-box">Sin envios todavia.</pre>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Flujo movil</h2>
+                <p class="panel-desc">Validacion por token y captura frontal, izquierda y derecha</p>
+              </div>
+            </div>
+            <div class="token-flow">
+              <div>
+                <span>1</span>
+                <strong>RRHH pre-registra</strong>
+                <small>Nombre, DNI, correo, area, cargo y turno.</small>
+              </div>
+              <div>
+                <span>2</span>
+                <strong>Gmail envia token</strong>
+                <small>El token se guarda hasheado y vence segun politica.</small>
+              </div>
+              <div>
+                <span>3</span>
+                <strong>App registra rostro</strong>
+                <small>El trabajador no elige datos; todo sale del token.</small>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <section class="panel admin-lists">
+          <div class="panel-header">
+            <div>
+              <h2>Estado de registros</h2>
+              <p class="panel-desc">Pendiente, enviado, usado, vencido, cancelado o rostro registrado</p>
+            </div>
+            <div class="users-header-actions">
+              <span id="pre-registrations-count" class="count-pill">0 trabajador(es)</span>
+              <button id="reload-pre-registrations" class="ghost-btn" type="button">Recargar</button>
+            </div>
+          </div>
+          <div id="pre-registrations-list" class="admin-list"></div>
         </section>
       </section>
 
@@ -345,6 +873,11 @@
                   <span class="toggle-ui" aria-hidden="true"></span>
                   <span>Escaneo automatico</span>
                 </label>
+                <label class="toggle-row">
+                  <input id="voice-assistant-enabled" type="checkbox" checked />
+                  <span class="toggle-ui" aria-hidden="true"></span>
+                  <span>Asistente de voz</span>
+                </label>
               </div>
 
               <div class="scan-meta">
@@ -357,6 +890,7 @@
             <div class="scan-camera-column">
               <div class="camera-preview-wrap">
                 <video id="face-camera-preview" class="camera-preview" autoplay muted playsinline></video>
+                <canvas id="scan-camera-mesh" class="scan-camera-mesh"></canvas>
                 <div class="camera-frame-corner tl"></div>
                 <div class="camera-frame-corner tr"></div>
                 <div class="camera-frame-corner bl"></div>
@@ -455,6 +989,14 @@
             <article class="metric compact accent-red">
               <span>Rechazados</span>
               <strong id="report-rejected">0</strong>
+            </article>
+            <article class="metric compact accent-amber">
+              <span>Tardanzas</span>
+              <strong id="report-late">0</strong>
+            </article>
+            <article class="metric compact accent-red">
+              <span>Salidas ant.</span>
+              <strong id="report-early-exits">0</strong>
             </article>
           </div>
 
@@ -560,6 +1102,12 @@
             <input name="email" type="email" placeholder="nombre@empresa.com" />
           </label>
           <label>
+            Turno
+            <select name="shift_code" id="user-edit-shift-code">
+              <option value="">Sin turno asignado...</option>
+            </select>
+          </label>
+          <label>
             Foto del rostro
             <input name="photo" type="file" accept="image/*" />
             <small class="field-hint">Opcional. Actualiza la foto visible y el reconocimiento.</small>
@@ -576,6 +1124,11 @@
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </main>
 
-    <script src="./app.js"></script>
+    <script>
+      window.__IA_FACIAL_BUILD = "2026061101";
+      console.info("[IA Facial] build", window.__IA_FACIAL_BUILD);
+    </script>
+    <script src="./register-scanner.js?v=2026061102"></script>
+    <script src="./app.js?v=2026061102"></script>
   </body>
 </html>

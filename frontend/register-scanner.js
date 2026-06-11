@@ -1,0 +1,528 @@
+/**
+ * Escaneo facial en vivo para registro.
+ * Requiere window.__mpVision (cargado desde index.html).
+ */
+(function registerScannerBootstrap() {
+  const REGISTER_SCAN_STEPS = [
+    {
+      id: "front",
+      field: "front",
+      label: "Frontal",
+      prompt: "Mira de frente al centro del circulo",
+      speech: "Mira de frente al centro del circulo.",
+      matchYaw: (yaw) => Math.abs(yaw) <= 0.09,
+    },
+    {
+      id: "left",
+      field: "left",
+      label: "Giro izquierda",
+      prompt: "Gira la cabeza hacia tu izquierda",
+      speech: "Gira la cabeza hacia tu izquierda.",
+      matchYaw: (yaw) => yaw <= -0.11,
+    },
+    {
+      id: "right",
+      field: "right",
+      label: "Giro derecha",
+      prompt: "Gira la cabeza hacia tu derecha",
+      speech: "Gira la cabeza hacia tu derecha.",
+      matchYaw: (yaw) => yaw >= 0.11,
+    },
+  ];
+
+  const MESH_POINT_COLOR = "#38bdf8";
+  const MESH_GLOW_COLOR = "rgba(56, 189, 248, 0.45)";
+
+  let sharedLandmarker = null;
+  let sharedLandmarkerPromise = null;
+
+  async function loadSharedLandmarker() {
+    if (sharedLandmarker) return sharedLandmarker;
+    if (!sharedLandmarkerPromise) {
+      sharedLandmarkerPromise = (async () => {
+        const mp = await import(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm",
+        );
+        const vision = await mp.FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm",
+        );
+        sharedLandmarker = await mp.FaceLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath:
+              "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+            delegate: "CPU",
+          },
+          runningMode: "VIDEO",
+          numFaces: 1,
+        });
+        return sharedLandmarker;
+      })();
+    }
+    return sharedLandmarkerPromise;
+  }
+
+  function drawFaceMesh(ctx, landmarks, width, height) {
+    for (const point of landmarks) {
+      const x = point.x * width;
+      const y = point.y * height;
+      ctx.beginPath();
+      ctx.fillStyle = MESH_GLOW_COLOR;
+      ctx.arc(x, y, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.fillStyle = MESH_POINT_COLOR;
+      ctx.arc(x, y, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  class FaceMeshOverlay {
+    constructor(video, canvas) {
+      this.video = video;
+      this.canvas = canvas;
+      this.landmarker = null;
+      this.running = false;
+      this.rafId = null;
+      this.ready = false;
+    }
+
+    async start() {
+      if (this.running) return true;
+      try {
+        this.landmarker = await loadSharedLandmarker();
+        this.ready = true;
+      } catch (error) {
+        console.warn("MediaPipe no disponible en escaneo de asistencia:", error);
+        this.ready = false;
+        return false;
+      }
+      this.running = true;
+      this.loop();
+      return true;
+    }
+
+    stop() {
+      this.running = false;
+      this.ready = false;
+      if (this.rafId) {
+        cancelAnimationFrame(this.rafId);
+        this.rafId = null;
+      }
+      const ctx = this.canvas?.getContext("2d");
+      if (ctx && this.canvas) {
+        ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      }
+    }
+
+    loop() {
+      if (!this.running) return;
+      this.rafId = requestAnimationFrame(() => this.tick());
+    }
+
+    tick() {
+      if (!this.running || !this.landmarker || !this.video?.videoWidth) {
+        this.loop();
+        return;
+      }
+      const width = this.video.videoWidth;
+      const height = this.video.videoHeight;
+      this.canvas.width = width;
+      this.canvas.height = height;
+      const results = this.landmarker.detectForVideo(this.video, performance.now());
+      const ctx = this.canvas.getContext("2d");
+      ctx.clearRect(0, 0, width, height);
+      const landmarks = results.faceLandmarks?.[0];
+      if (landmarks?.length) {
+        drawFaceMesh(ctx, landmarks, width, height);
+      }
+      this.loop();
+    }
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  class RegisterFaceScanner {
+    constructor(options = {}) {
+      this.video = options.video;
+      this.canvas = options.canvas;
+      this.circleEl = options.circleEl;
+      this.stepLabelEl = options.stepLabelEl;
+      this.hintEl = options.hintEl;
+      this.progressEl = options.progressEl;
+      this.onSpeak = options.onSpeak || (() => {});
+      this.onStepCaptured = options.onStepCaptured || (() => {});
+      this.onComplete = options.onComplete || (() => {});
+      this.onStatus = options.onStatus || (() => {});
+
+      this.stream = null;
+      this.landmarker = null;
+      this.running = false;
+      this.rafId = null;
+      this.captures = {};
+      this.stepIndex = 0;
+      this.stableFrames = 0;
+      this.requiredStableFrames = 14;
+      this.capturing = false;
+      this.fallbackMode = false;
+      this.apiBase = options.apiBase || "";
+    }
+
+    get isComplete() {
+      return REGISTER_SCAN_STEPS.every((step) => this.captures[step.field]);
+    }
+
+    async start() {
+      if (this.running) return;
+      this.captures = {};
+      this.stepIndex = 0;
+      this.stableFrames = 0;
+      this.onStatus("loading", "Preparando escaneo...", "Solicitando camara y modelos de IA");
+
+      await this.startCamera();
+
+      try {
+        this.onStatus("loading", "Cargando IA...", "Descargando MediaPipe (primera vez tarda unos segundos)");
+        await this.ensureLandmarker();
+      } catch (error) {
+        console.warn("MediaPipe no disponible, usando modo compatible:", error);
+        this.fallbackMode = true;
+        this.onStatus(
+          "scanning",
+          "Modo compatible",
+          "Sin puntos azules: usando deteccion del servidor. Centra tu rostro en el circulo.",
+        );
+      }
+
+      this.running = true;
+      this.renderProgress();
+      const step = this.currentStep();
+      this.onStatus("scanning", "Escaneo iniciado", step.prompt);
+      this.onSpeak(step.speech);
+
+      if (this.fallbackMode) {
+        this.fallbackLoop();
+        return;
+      }
+      this.loop();
+    }
+
+    stop() {
+      this.running = false;
+      if (this.rafId) {
+        cancelAnimationFrame(this.rafId);
+        this.rafId = null;
+      }
+      if (this.stream) {
+        this.stream.getTracks().forEach((track) => track.stop());
+        this.stream = null;
+      }
+      if (this.video) {
+        this.video.srcObject = null;
+      }
+      const ctx = this.canvas?.getContext("2d");
+      if (ctx && this.canvas) {
+        ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      }
+      this.circleEl?.classList.remove("aligned", "scanning");
+    }
+
+    currentStep() {
+      return REGISTER_SCAN_STEPS[this.stepIndex] || REGISTER_SCAN_STEPS[0];
+    }
+
+    async ensureLandmarker() {
+      if (this.landmarker) return;
+      this.landmarker = await loadSharedLandmarker();
+    }
+
+    async startCamera() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Este navegador no permite acceso a la camara.");
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "user",
+          width: { ideal: 1280, min: 640 },
+          height: { ideal: 720, min: 480 },
+        },
+        audio: false,
+      });
+      this.stream = stream;
+      this.video.srcObject = stream;
+      await new Promise((resolve) => {
+        if (this.video.readyState >= 2 && this.video.videoWidth > 0) {
+          resolve();
+          return;
+        }
+        this.video.addEventListener("loadeddata", resolve, { once: true });
+        window.setTimeout(resolve, 3000);
+      });
+      await sleep(400);
+      if (!this.video.videoWidth) {
+        throw new Error("La camara no respondio. Revisa permisos del navegador.");
+      }
+    }
+
+    loop() {
+      if (!this.running) return;
+      this.rafId = requestAnimationFrame(() => this.tick());
+    }
+
+    tick() {
+      if (!this.running || !this.landmarker || !this.video?.videoWidth) {
+        this.loop();
+        return;
+      }
+
+      const width = this.video.videoWidth;
+      const height = this.video.videoHeight;
+      this.canvas.width = width;
+      this.canvas.height = height;
+
+      const results = this.landmarker.detectForVideo(this.video, performance.now());
+      const ctx = this.canvas.getContext("2d");
+      ctx.clearRect(0, 0, width, height);
+
+      const landmarks = results.faceLandmarks?.[0];
+      if (!landmarks?.length) {
+        this.stableFrames = 0;
+        this.circleEl?.classList.remove("aligned");
+        this.updateHint("Coloca tu rostro dentro del circulo");
+        this.loop();
+        return;
+      }
+
+      const metrics = this.computeMetrics(landmarks, width, height);
+      this.drawMesh(ctx, landmarks, width, height);
+      this.evaluatePose(metrics);
+      this.loop();
+    }
+
+    async fallbackLoop() {
+      while (this.running) {
+        const width = this.video.videoWidth;
+        const height = this.video.videoHeight;
+        if (!width || !height) {
+          await sleep(200);
+          continue;
+        }
+        this.canvas.width = width;
+        this.canvas.height = height;
+        const ctx = this.canvas.getContext("2d");
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(this.video, 0, 0, width, height);
+
+        const metrics = await this.detectFaceViaApi(width, height);
+        if (!metrics) {
+          this.stableFrames = 0;
+          this.circleEl?.classList.remove("aligned");
+          this.updateHint("Coloca tu rostro dentro del circulo");
+          await sleep(350);
+          continue;
+        }
+
+        this.drawFallbackBox(ctx, metrics);
+        this.evaluatePose(metrics);
+        await sleep(350);
+      }
+    }
+
+    async detectFaceViaApi(width, height) {
+      if (!this.apiBase) return null;
+      const blob = await this.grabFrameBlob();
+      if (!blob) return null;
+      const form = new FormData();
+      form.append("file", blob, "detect.jpg");
+      try {
+        const response = await fetch(`${this.apiBase}/api/v1/faces/detect`, {
+          method: "POST",
+          body: form,
+        });
+        if (!response.ok) return null;
+        const data = await response.json();
+        if (!data.face_count || !data.faces?.length) return null;
+        const face = data.faces[0];
+        const centerX = face.x + face.width / 2;
+        const centerY = face.y + face.height / 2;
+        return {
+          centerX,
+          centerY,
+          faceWidth: face.width,
+          faceHeight: face.height,
+          yaw: 0,
+          frameCenterX: width / 2,
+          frameCenterY: height / 2,
+          frameSize: Math.min(width, height),
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    drawFallbackBox(ctx, metrics) {
+      const x = metrics.centerX - metrics.faceWidth / 2;
+      const y = metrics.centerY - metrics.faceHeight / 2;
+      ctx.strokeStyle = MESH_POINT_COLOR;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, metrics.faceWidth, metrics.faceHeight);
+    }
+
+    evaluatePose(metrics) {
+      const step = this.currentStep();
+      const aligned = this.isFaceAligned(metrics);
+      const poseOk = this.fallbackMode || step.matchYaw(metrics.yaw);
+
+      this.circleEl?.classList.toggle("aligned", aligned && poseOk);
+      this.circleEl?.classList.add("scanning");
+
+      if (aligned && poseOk) {
+        this.stableFrames += 1;
+        this.updateHint(`Mantente quieto... ${Math.max(0, this.requiredStableFrames - this.stableFrames)}`);
+        if (this.stableFrames >= this.requiredStableFrames && !this.capturing) {
+          this.captureCurrentStep().catch((error) => {
+            this.capturing = false;
+            this.onStatus("error", "Error al capturar", error.message);
+          });
+        }
+      } else {
+        this.stableFrames = 0;
+        this.updateHint(aligned ? step.prompt : "Centra tu rostro en el circulo");
+      }
+
+      if (this.stepLabelEl) {
+        this.stepLabelEl.textContent = `Paso ${this.stepIndex + 1}/${REGISTER_SCAN_STEPS.length}: ${step.label}`;
+      }
+    }
+
+    computeMetrics(landmarks, width, height) {
+      const xs = landmarks.map((p) => p.x * width);
+      const ys = landmarks.map((p) => p.y * height);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+      const faceWidth = maxX - minX;
+
+      const leftCheek = landmarks[234];
+      const rightCheek = landmarks[454];
+      const nose = landmarks[1];
+      const leftDist = Math.abs(nose.x - leftCheek.x);
+      const rightDist = Math.abs(rightCheek.x - nose.x);
+      const yaw = (rightDist - leftDist) / Math.max(leftDist + rightDist, 0.0001);
+
+      return {
+        centerX,
+        centerY,
+        faceWidth,
+        faceHeight: maxY - minY,
+        yaw,
+        frameCenterX: width / 2,
+        frameCenterY: height / 2,
+        frameSize: Math.min(width, height),
+      };
+    }
+
+    isFaceAligned(metrics) {
+      const dx = Math.abs(metrics.centerX - metrics.frameCenterX);
+      const dy = Math.abs(metrics.centerY - metrics.frameCenterY);
+      const centerTolerance = metrics.frameSize * 0.11;
+      const sizeRatio = metrics.faceWidth / metrics.frameSize;
+      return dx <= centerTolerance && dy <= centerTolerance && sizeRatio >= 0.28 && sizeRatio <= 0.62;
+    }
+
+    drawMesh(ctx, landmarks, width, height) {
+      drawFaceMesh(ctx, landmarks, width, height);
+    }
+
+    async captureCurrentStep() {
+      if (this.capturing) return;
+      this.capturing = true;
+      const step = this.currentStep();
+      const blob = await this.grabFrameBlob();
+      if (!blob) {
+        this.capturing = false;
+        throw new Error("No se pudo capturar la imagen de la camara.");
+      }
+      this.captures[step.field] = blob;
+      this.stableFrames = 0;
+      this.onStepCaptured(step, blob);
+      this.renderProgress();
+
+      if (this.stepIndex < REGISTER_SCAN_STEPS.length - 1) {
+        this.stepIndex += 1;
+        this.capturing = false;
+        const next = this.currentStep();
+        this.onStatus("scanning", `Captura ${step.label} lista`, next.prompt);
+        this.onSpeak(`${step.label} capturado. ${next.speech}`);
+        return;
+      }
+
+      this.running = false;
+      this.capturing = false;
+      this.circleEl?.classList.remove("scanning");
+      this.onStatus("success", "Escaneo completo", "Las 3 poses fueron capturadas. Guardando perfil...");
+      this.onSpeak("Escaneo completo. Guardando tu perfil facial.");
+      this.onComplete(this.captures);
+    }
+
+    async grabFrameBlob() {
+      const temp = document.createElement("canvas");
+      temp.width = this.video.videoWidth;
+      temp.height = this.video.videoHeight;
+      const ctx = temp.getContext("2d");
+      ctx.drawImage(this.video, 0, 0, temp.width, temp.height);
+      return new Promise((resolve) => {
+        temp.toBlob((blob) => resolve(blob), "image/jpeg", 0.92);
+      });
+    }
+
+    renderProgress() {
+      if (!this.progressEl) return;
+      this.progressEl.innerHTML = REGISTER_SCAN_STEPS.map((step) => {
+        const done = Boolean(this.captures[step.field]);
+        const active = this.currentStep().id === step.id && this.running;
+        return `<span class="register-scan-chip${done ? " done" : ""}${active ? " active" : ""}">${step.label}</span>`;
+      }).join("");
+    }
+
+    updateHint(text) {
+      if (this.hintEl) this.hintEl.textContent = text;
+    }
+
+    applyCapturesToForm(formEl) {
+      for (const step of REGISTER_SCAN_STEPS) {
+        const blob = this.captures[step.field];
+        const input = formEl.querySelector(`input[name="${step.field}"]`);
+        if (!blob || !input) continue;
+        const file = new File([blob], `${step.field}.jpg`, { type: "image/jpeg" });
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        input.files = transfer.files;
+      }
+    }
+  }
+
+  window.RegisterFaceScanner = RegisterFaceScanner;
+  window.FaceMeshOverlay = FaceMeshOverlay;
+  window.REGISTER_SCAN_STEPS = REGISTER_SCAN_STEPS;
+  window.registerScannerLoadError = null;
+
+  window.isRegisterScannerReady = function isRegisterScannerReady() {
+    return Boolean(window.RegisterFaceScanner);
+  };
+
+  // Si app.js esta en cache, el boton no debe fallar en silencio.
+  window.startRegisterFaceScan = function startRegisterFaceScanBootstrap() {
+    if (typeof window.__startRegisterFaceScanReady === "function") {
+      return window.__startRegisterFaceScanReady();
+    }
+    const msg =
+      "JavaScript desactualizado (cache del navegador). Pulsa Ctrl+Shift+R o cierra la pestaña y vuelve a abrir http://127.0.0.1:5500/";
+    console.error("[IA Facial]", msg);
+    window.alert(msg);
+  };
+})();

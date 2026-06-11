@@ -50,6 +50,71 @@ class FaceApiClient {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> validateRegistrationToken(String token) async {
+    final uri = Uri.parse('$baseUrl/api/v1/registration-tokens/validate');
+    final response = await http.post(
+      uri,
+      headers: const {
+        'Content-Type': 'application/json',
+        'X-Client-Source': 'mobile',
+      },
+      body: jsonEncode({'token': token.trim()}),
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FaceApiException(
+        statusCode: response.statusCode,
+        body: response.body,
+      );
+    }
+
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> registerMobileFaceProfile({
+    required String token,
+    required File frontFile,
+    required File leftFile,
+    required File rightFile,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/mobile/faces/register-profile');
+    final request = http.MultipartRequest('POST', uri)
+      ..fields['token'] = token.trim()
+      ..files.add(await http.MultipartFile.fromPath('front', frontFile.path))
+      ..files.add(await http.MultipartFile.fromPath('left', leftFile.path))
+      ..files.add(await http.MultipartFile.fromPath('right', rightFile.path));
+
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FaceApiException(
+        statusCode: response.statusCode,
+        body: response.body,
+      );
+    }
+
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> completeRegistrationToken(String token) async {
+    final uri = Uri.parse('$baseUrl/api/v1/registration-tokens/complete');
+    final response = await http.post(
+      uri,
+      headers: const {'Content-Type': 'application/json'},
+      body: jsonEncode({'token': token.trim()}),
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FaceApiException(
+        statusCode: response.statusCode,
+        body: response.body,
+      );
+    }
+
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> submitExitAttemptWithFace({
     required File imageFile,
     DateTime? attemptedAt,

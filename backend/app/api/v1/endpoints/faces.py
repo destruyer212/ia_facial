@@ -17,16 +17,22 @@ from app.schemas.face import (
     RegisterFaceProfileResponse,
     RegisterFaceResponse,
     StorageStatusResponse,
+    DeleteEmployeeResponse,
+    DeleteEmployeeStats,
     UpdateEmployeePhotoResponse,
     UpdateEmployeeRequest,
     UpdateEmployeeResponse,
 )
+from app.services.attendance_event_store import get_attendance_event_store
+from app.services.employee_catalog_service import get_employee_catalog_service
 from app.services.embedding_store import get_embedding_store, sanitize_person_id
+from app.services.incident_store import get_incident_store
 from app.services.liveness_service import LivenessService
 from app.services.supabase_db import get_conn, resolve_org_id, save_face_asset
 from app.services.face_ai_service import FaceAIService
 from app.services.opencv_service import OpenCVService
 from app.services.r2_storage_service import R2StorageService
+from app.services.schedule_service import get_schedule_service
 from app.utils.image_files import remove_file, save_upload_to_temp_file
 
 router = APIRouter()
@@ -34,6 +40,9 @@ opencv_service = OpenCVService()
 face_ai_service = FaceAIService()
 liveness_service = LivenessService(face_ai=face_ai_service, opencv=opencv_service)
 embedding_store = get_embedding_store()
+employee_catalog_service = get_employee_catalog_service()
+attendance_event_store = get_attendance_event_store()
+incident_store = get_incident_store()
 r2_storage = R2StorageService() if settings.r2_enabled else None
 
 
@@ -126,7 +135,9 @@ async def register_face(
 
 @router.post("/register-profile", response_model=RegisterFaceProfileResponse)
 async def register_face_profile(
-    person_id: str = Form(...),
+    area_code: str = Form(...),
+    position_code: str = Form(...),
+    shift_code: str | None = Form(None),
     name: str = Form(...),
     email: str | None = Form(None),
     front: UploadFile = File(...),
@@ -135,6 +146,16 @@ async def register_face_profile(
     with_glasses: UploadFile | None = File(None),
     without_glasses: UploadFile | None = File(None),
 ) -> RegisterFaceProfileResponse:
+    if shift_code:
+        shift = get_schedule_service().get_shift(shift_code)
+        if shift is None or not shift.is_active:
+            raise HTTPException(status_code=400, detail=f"Turno '{shift_code}' no existe o esta inactivo.")
+    try:
+        allocated = employee_catalog_service.allocate_employee_code(area_code, position_code)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    person_id = allocated.employee_code
     uploads: dict[str, UploadFile] = {
         "front": front,
         "left": left,
@@ -163,6 +184,11 @@ async def register_face_profile(
                 image_path=image_path,
                 content_type=content_type,
                 pose_type=pose_type,
+                employee_code=allocated.employee_code,
+                area_code=allocated.area_code,
+                position_code=allocated.position_code,
+                area_name=allocated.area_name,
+                position_name=allocated.position_name,
             )
             poses_saved.append(pose_type)
             if pose_type == "front":
@@ -173,6 +199,8 @@ async def register_face_profile(
                 storage_messages.append(pose_msg)
 
         total = embedding_store.count_person_embeddings(person_id)
+        if shift_code:
+            get_schedule_service().assign_shift(person_id, shift_code)
         return RegisterFaceProfileResponse(
             person_id=stored.person_id,
             name=stored.name,
@@ -261,7 +289,7 @@ async def identify_face(file: UploadFile = File(...)) -> IdentifyFaceResponse:
     image_path = await _persist_upload(file)
     try:
         embedding = face_ai_service.create_embedding(image_path)
-        scan_threshold = settings.face_scan_match_threshold
+        scan_threshold = get_runtime_scan_threshold()
         match = embedding_store.find_best_match(
             embedding=embedding,
             threshold=scan_threshold,
@@ -292,7 +320,8 @@ async def identify_face(file: UploadFile = File(...)) -> IdentifyFaceResponse:
 
 @router.get("/registered", response_model=RegisteredFacesResponse)
 def list_registered_faces() -> RegisteredFacesResponse:
-    return RegisteredFacesResponse(faces=embedding_store.list_public())
+    faces = get_schedule_service().enrich_faces(embedding_store.list_public())
+    return RegisteredFacesResponse(faces=faces)
 
 
 @router.patch("/employees/{person_id}", response_model=UpdateEmployeeResponse)
@@ -302,21 +331,48 @@ def update_employee(
 ) -> UpdateEmployeeResponse:
     if all(
         value is None
-        for value in (payload.name, payload.email, payload.employee_code, payload.is_active)
+        for value in (
+            payload.name,
+            payload.email,
+            payload.employee_code,
+            payload.shift_code,
+            payload.is_active,
+        )
     ):
         raise HTTPException(status_code=400, detail="Envia al menos un campo para actualizar.")
+    has_employee_update = any(
+        value is not None
+        for value in (payload.name, payload.email, payload.employee_code, payload.is_active)
+    )
     try:
-        person = embedding_store.update_employee(
-            person_id,
-            name=payload.name,
-            email=payload.email,
-            employee_code=payload.employee_code,
-            is_active=payload.is_active,
-        )
+        if has_employee_update:
+            person = embedding_store.update_employee(
+                person_id,
+                name=payload.name,
+                email=payload.email,
+                employee_code=payload.employee_code,
+                is_active=payload.is_active,
+            )
+        else:
+            person = _get_registered_employee(person_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if payload.shift_code is not None:
+        try:
+            get_schedule_service().assign_shift(person_id, payload.shift_code)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        person = next(
+            (
+                face
+                for face in get_schedule_service().enrich_faces(embedding_store.list_public())
+                if face.person_id == person_id
+            ),
+            person,
+        )
 
     if payload.is_active is False:
         message = f"Empleado {person.name} desactivado. Ya no podra escanearse."
@@ -326,6 +382,48 @@ def update_employee(
         message = f"Datos de {person.name} actualizados."
 
     return UpdateEmployeeResponse(person=person, message=message)
+
+
+@router.delete("/employees/{person_id}", response_model=DeleteEmployeeResponse)
+def delete_employee(person_id: str) -> DeleteEmployeeResponse:
+    try:
+        result = embedding_store.delete_employee(person_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    get_schedule_service().remove_assignment(person_id)
+
+    r2_keys = result.pop("r2_keys", [])
+    r2_objects_deleted = 0
+    if r2_storage is not None and r2_keys:
+        r2_objects_deleted = r2_storage.delete_objects(r2_keys)
+
+    if settings.storage_backend.lower() != "supabase":
+        result["attendance_events_deleted"] = attendance_event_store.delete_by_person(
+            result["person_id"],
+        )
+        result["incidents_deleted"] = incident_store.delete_by_person(result["person_id"])
+
+    deleted = DeleteEmployeeStats(
+        embeddings=result.get("embeddings_deleted", 0),
+        portraits=result.get("portraits_deleted", 0),
+        attendance_events=result.get("attendance_events_deleted", 0),
+        incidents=result.get("incidents_deleted", 0),
+        liveness_checks=result.get("liveness_checks_deleted", 0),
+        r2_objects=r2_objects_deleted,
+    )
+    name = result["name"]
+    message = (
+        f"{name} eliminado definitivamente. "
+        f"Se borraron {deleted.embeddings} embedding(s), "
+        f"{deleted.attendance_events} marca(s) de asistencia y "
+        f"{deleted.incidents} incidencia(s)."
+    )
+    return DeleteEmployeeResponse(
+        person_id=result["person_id"],
+        name=name,
+        message=message,
+        deleted=deleted,
+    )
 
 
 @router.post("/employees/{person_id}/photo", response_model=UpdateEmployeePhotoResponse)
@@ -423,6 +521,11 @@ async def _upsert_face_from_image(
     image_path: Path,
     content_type: str,
     pose_type: str = "front",
+    employee_code: str | None = None,
+    area_code: str | None = None,
+    position_code: str | None = None,
+    area_name: str | None = None,
+    position_name: str | None = None,
 ) -> tuple[object, str, bool, str | None, str]:
     embedding = face_ai_service.create_embedding(image_path)
     stored = embedding_store.save_embedding(
@@ -432,6 +535,11 @@ async def _upsert_face_from_image(
         embedding=embedding,
         email=email,
         pose_type=pose_type,
+        employee_code=employee_code,
+        area_code=area_code,
+        position_code=position_code,
+        area_name=area_name,
+        position_name=position_name,
     )
     image_url = embedding_store.save_portrait(stored.person_id, image_path, pose_type=pose_type)
     r2_saved = False
@@ -493,3 +601,12 @@ def _build_r2_object_key(person_id: str, suffix: str, pose_type: str = "front") 
         f"{now:%Y/%m/%d}/"
         f"{uuid4().hex}-{suffix}"
     )
+
+
+def get_runtime_scan_threshold() -> float:
+    try:
+        from app.services.admin_service import get_admin_service
+
+        return get_admin_service().get_system_settings().face_scan_match_threshold
+    except Exception:
+        return settings.face_scan_match_threshold

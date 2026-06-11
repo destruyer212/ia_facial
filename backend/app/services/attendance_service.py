@@ -25,9 +25,10 @@ class AttendanceService:
         scheduled_exit_time: time | None = None,
         tolerance_minutes: int | None = None,
     ) -> ExitPolicyResponse:
-        scheduled_time = scheduled_exit_time or parse_time(settings.default_scheduled_exit_time)
+        runtime = get_runtime_settings()
+        scheduled_time = scheduled_exit_time or parse_time(runtime.default_scheduled_exit_time)
         resolved_tolerance = (
-            settings.default_exit_tolerance_minutes
+            runtime.default_exit_tolerance_minutes
             if tolerance_minutes is None
             else tolerance_minutes
         )
@@ -162,3 +163,16 @@ def parse_time(value: str) -> time:
 def add_minutes_to_time(value: time, minutes: int) -> time:
     base = datetime.combine(datetime.today(), value)
     return (base + timedelta(minutes=minutes)).time().replace(second=0, microsecond=0)
+
+
+def get_runtime_settings():
+    try:
+        from app.services.admin_service import get_admin_service
+
+        return get_admin_service().get_system_settings()
+    except Exception:
+        class _FallbackSettings:
+            default_scheduled_exit_time = settings.default_scheduled_exit_time
+            default_exit_tolerance_minutes = settings.default_exit_tolerance_minutes
+
+        return _FallbackSettings()

@@ -1,0 +1,58 @@
+{
+  "areas": [
+    { "code": "GG", "name": "Gerencia General", "sort_order": 1 },
+    { "code": "AD", "name": "Administración", "sort_order": 2 },
+    { "code": "FN", "name": "Finanzas", "sort_order": 3 },
+    { "code": "VN", "name": "Ventas", "sort_order": 4 },
+    { "code": "OP", "name": "Operaciones", "sort_order": 5 },
+    { "code": "LG", "name": "Logística", "sort_order": 6 },
+    { "code": "TI", "name": "Tecnología", "sort_order": 7 },
+    { "code": "RH", "name": "Recursos Humanos", "sort_order": 8 },
+    { "code": "MS", "name": "Mantenimiento y Servicios", "sort_order": 9 }
+  ],
+  "positions": [
+    { "area_code": "GG", "code": "GE", "name": "Gerente General", "sort_order": 1 },
+    { "area_code": "GG", "code": "SG", "name": "Subgerente", "sort_order": 2 },
+    { "area_code": "GG", "code": "AG", "name": "Asistente de Gerencia", "sort_order": 3 },
+
+    { "area_code": "AD", "code": "AD", "name": "Administrador", "sort_order": 1 },
+    { "area_code": "AD", "code": "AA", "name": "Auxiliar Administrativo", "sort_order": 2 },
+    { "area_code": "AD", "code": "RC", "name": "Recepcionista", "sort_order": 3 },
+    { "area_code": "AD", "code": "SE", "name": "Secretaria", "sort_order": 4 },
+
+    { "area_code": "FN", "code": "JF", "name": "Jefe de Finanzas", "sort_order": 1 },
+    { "area_code": "FN", "code": "CF", "name": "Contador", "sort_order": 2 },
+    { "area_code": "FN", "code": "AF", "name": "Auxiliar de Finanzas", "sort_order": 3 },
+    { "area_code": "FN", "code": "TC", "name": "Tesorero", "sort_order": 4 },
+
+    { "area_code": "VN", "code": "JV", "name": "Jefe de Ventas", "sort_order": 1 },
+    { "area_code": "VN", "code": "EV", "name": "Ejecutivo de Ventas", "sort_order": 2 },
+    { "area_code": "VN", "code": "AC", "name": "Asesor Comercial", "sort_order": 3 },
+    { "area_code": "VN", "code": "SV", "name": "Supervisor de Ventas", "sort_order": 4 },
+
+    { "area_code": "OP", "code": "JO", "name": "Jefe de Operaciones", "sort_order": 1 },
+    { "area_code": "OP", "code": "SO", "name": "Supervisor de Operaciones", "sort_order": 2 },
+    { "area_code": "OP", "code": "OR", "name": "Operario", "sort_order": 3 },
+    { "area_code": "OP", "code": "TE", "name": "Técnico de Operaciones", "sort_order": 4 },
+
+    { "area_code": "LG", "code": "JL", "name": "Jefe de Logística", "sort_order": 1 },
+    { "area_code": "LG", "code": "AL", "name": "Almacenero", "sort_order": 2 },
+    { "area_code": "LG", "code": "CD", "name": "Conductor", "sort_order": 3 },
+    { "area_code": "LG", "code": "DP", "name": "Despachador", "sort_order": 4 },
+
+    { "area_code": "TI", "code": "JT", "name": "Jefe de TI", "sort_order": 1 },
+    { "area_code": "TI", "code": "DS", "name": "Desarrollador de Software", "sort_order": 2 },
+    { "area_code": "TI", "code": "SA", "name": "Soporte y Administrador de Sistemas", "sort_order": 3 },
+    { "area_code": "TI", "code": "AN", "name": "Analista de TI", "sort_order": 4 },
+
+    { "area_code": "RH", "code": "JR", "name": "Jefe de Recursos Humanos", "sort_order": 1 },
+    { "area_code": "RH", "code": "AR", "name": "Asistente de RRHH", "sort_order": 2 },
+    { "area_code": "RH", "code": "RE", "name": "Reclutador", "sort_order": 3 },
+    { "area_code": "RH", "code": "CP", "name": "Coordinador de Personal", "sort_order": 4 },
+
+    { "area_code": "MS", "code": "PL", "name": "Personal de Limpieza", "sort_order": 1 },
+    { "area_code": "MS", "code": "PM", "name": "Personal de Mantenimiento", "sort_order": 2 },
+    { "area_code": "MS", "code": "VG", "name": "Vigilante", "sort_order": 3 },
+    { "area_code": "MS", "code": "JM", "name": "Jefe de Mantenimiento", "sort_order": 4 }
+  ]
+}

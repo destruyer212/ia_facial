@@ -94,6 +94,15 @@ class AttendanceEvent(AttendanceEventCreate):
     accepted: bool
     duplicate: bool
     created_at: datetime
+    shift_code: str | None = None
+    shift_name: str | None = None
+    scheduled_start_time: time | None = None
+    scheduled_exit_time: time | None = None
+    tolerance_minutes: int | None = None
+    work_status: str = "unassigned"
+    work_status_label: str = "Sin turno"
+    minutes_late: int = 0
+    minutes_early: int = 0
 
 
 class AttendanceEventResponse(BaseModel):
@@ -107,6 +116,8 @@ class AttendanceReportSummary(BaseModel):
     check_outs: int = 0
     duplicates: int = 0
     rejected: int = 0
+    late: int = 0
+    early_exits: int = 0
 
 
 class AttendanceEventListResponse(BaseModel):

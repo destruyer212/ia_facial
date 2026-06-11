@@ -44,3 +44,20 @@ class R2StorageService:
             return True, "R2 conectado correctamente."
         except (BotoCoreError, ClientError) as exc:
             return False, f"R2 error: {exc}"
+
+    def delete_objects(self, object_keys: list[str]) -> int:
+        keys = [key.strip() for key in object_keys if key and key.strip()]
+        if not keys:
+            return 0
+        deleted = 0
+        for index in range(0, len(keys), 1000):
+            batch = keys[index : index + 1000]
+            try:
+                response = self._client.delete_objects(
+                    Bucket=self.bucket,
+                    Delete={"Objects": [{"Key": key} for key in batch], "Quiet": True},
+                )
+                deleted += len(response.get("Deleted", []))
+            except (BotoCoreError, ClientError):
+                continue
+        return deleted

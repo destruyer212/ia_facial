@@ -39,6 +39,13 @@ class StoredFacePublic(BaseModel):
     image_url: str | None = None
     email: str | None = None
     employee_code: str | None = None
+    area_code: str | None = None
+    area_name: str | None = None
+    position_code: str | None = None
+    position_name: str | None = None
+    shift_code: str | None = None
+    shift_name: str | None = None
+    schedule_label: str | None = None
     is_active: bool = True
     embedding_count: int = 1
 
@@ -126,6 +133,7 @@ class UpdateEmployeeRequest(BaseModel):
     name: str | None = None
     email: str | None = None
     employee_code: str | None = None
+    shift_code: str | None = None
     is_active: bool | None = None
 
 
@@ -140,3 +148,18 @@ class UpdateEmployeePhotoResponse(BaseModel):
     image_url: str | None = None
     r2_saved: bool = False
 
+
+class DeleteEmployeeStats(BaseModel):
+    embeddings: int = 0
+    portraits: int = 0
+    attendance_events: int = 0
+    incidents: int = 0
+    liveness_checks: int = 0
+    r2_objects: int = 0
+
+
+class DeleteEmployeeResponse(BaseModel):
+    person_id: str
+    name: str
+    message: str
+    deleted: DeleteEmployeeStats

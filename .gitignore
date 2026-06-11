@@ -13,12 +13,13 @@ venv/
 .env
 !.env.example
 
+# Gmail OAuth (mantener solo en local)
+backend/credentials.json
+backend/token.json
+
 # Local biometric/dev data
-backend/data/*.json
-backend/data/*.jpg
-backend/data/*.jpeg
-backend/data/*.png
-backend/data/*.webp
+backend/data/**
+!backend/data/.gitkeep
 edge/data/*.json
 edge/data/*.jpg
 edge/data/*.jpeg

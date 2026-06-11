@@ -1,19 +1,34 @@
-# Flutter client
+# IA Facial Mobile
 
-Ejemplo inicial para consumir la API desde Android usando Flutter.
+App Flutter para registro facial masivo mediante token enviado por RRHH.
 
-Este directorio no es todavia una app Flutter completa. Cuando inicies mobile:
+## Flujo
+
+1. **Token**: el trabajador ingresa el token recibido por Gmail.
+2. **Datos**: la app muestra nombre, codigo, area, cargo y turno (solo lectura).
+3. **Capturas**: frontal, giro izquierda y giro derecha.
+4. **Confirmacion**: mensaje de registro completado.
+
+La app no permite editar nombre, area, cargo ni turno.
+
+## Ejecutar
 
 ```powershell
 cd C:\SpringProjectsnew\ia_facial\mobile\flutter_client
-flutter create .
+flutter pub get
+flutter run
 ```
 
-Luego conserva/adapta `lib/api/face_api_client.dart`.
+## URL del backend
 
-Dependencia sugerida en `pubspec.yaml`:
+- Emulador Android: `http://10.0.2.2:8000`
+- Dispositivo fisico: `http://<IP-de-tu-PC>:8000`
 
-```yaml
-dependencies:
-  http: ^1.2.2
-```
+La pantalla inicial permite cambiar la URL antes de validar el token.
+
+## APIs usadas
+
+- `POST /api/v1/registration-tokens/validate`
+- `POST /api/v1/mobile/faces/register-profile`
+
+El cliente HTTP esta en `lib/api/face_api_client.dart`.

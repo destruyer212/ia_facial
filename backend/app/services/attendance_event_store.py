@@ -13,6 +13,7 @@ from app.schemas.attendance import (
     AttendanceEventUpdate,
     AttendanceReportSummary,
 )
+from app.services.schedule_service import get_schedule_service
 from app.services.supabase_db import ensure_device, ensure_person, get_conn, resolve_org_id
 
 
@@ -44,12 +45,14 @@ class LocalAttendanceEventStore:
             duplicate=duplicate,
             created_at=datetime.now(UTC),
         )
+        event = enrich_with_schedule(event)
         events.append(event)
         self._save(events)
         return event
 
     def get(self, event_id: str) -> AttendanceEvent | None:
-        return next((event for event in self._load() if event.event_id == event_id), None)
+        event = next((event for event in self._load() if event.event_id == event_id), None)
+        return enrich_with_schedule(event) if event else None
 
     def update(self, event_id: str, payload: AttendanceEventUpdate) -> AttendanceEvent:
         events = self._load()
@@ -63,7 +66,7 @@ class LocalAttendanceEventStore:
                 continue
             if "captured_at" in updates and updates["captured_at"] is not None:
                 updates["captured_at"] = ensure_aware_utc(updates["captured_at"])
-            updated = event.model_copy(update=updates)
+            updated = enrich_with_schedule(event.model_copy(update=updates))
             events[index] = updated
             self._save(events)
             return updated
@@ -84,6 +87,15 @@ class LocalAttendanceEventStore:
         self._save(remaining)
         return event_id
 
+    def delete_by_person(self, person_id: str) -> int:
+        person_id = person_id.strip()
+        events = self._load()
+        remaining = [event for event in events if event.person_id != person_id]
+        deleted = len(events) - len(remaining)
+        if deleted:
+            self._save(remaining)
+        return deleted
+
     def list(
         self,
         person_id: str | None = None,
@@ -103,7 +115,7 @@ class LocalAttendanceEventStore:
             date_to=date_to,
         )
         events.sort(key=lambda item: ensure_aware_utc(item.captured_at), reverse=True)
-        return events[:limit]
+        return [enrich_with_schedule(event) for event in events[:limit]]
 
     def _is_duplicate(
         self,
@@ -224,7 +236,13 @@ def build_attendance_summary(events: list[AttendanceEvent]) -> AttendanceReportS
         check_outs=sum(1 for event in events if event.event_type == "check_out"),
         duplicates=sum(1 for event in events if event.duplicate),
         rejected=sum(1 for event in events if not event.accepted),
+        late=sum(1 for event in events if event.work_status == "late"),
+        early_exits=sum(1 for event in events if event.work_status == "early_exit"),
     )
+
+
+def enrich_with_schedule(event: AttendanceEvent) -> AttendanceEvent:
+    return get_schedule_service().enrich_event(event)
 
 
 class SupabaseAttendanceEventStore:
@@ -310,13 +328,13 @@ class SupabaseAttendanceEventStore:
                             duplicate,
                         ),
                     )
-        return AttendanceEvent(
+        return enrich_with_schedule(AttendanceEvent(
             **payload.model_dump(),
             event_id=event_id,
             accepted=accepted,
             duplicate=duplicate,
             created_at=datetime.now(UTC),
-        )
+        ))
 
     def get(self, event_id: str) -> AttendanceEvent | None:
         with get_conn() as conn:
@@ -446,10 +464,10 @@ class SupabaseAttendanceEventStore:
                 query += " and event_type = %s"
                 params.append(event_type)
             if date_from:
-                query += " and (captured_at at time zone 'UTC')::date >= %s"
+                query += " and captured_on >= %s"
                 params.append(date_from)
             if date_to:
-                query += " and (captured_at at time zone 'UTC')::date <= %s"
+                query += " and captured_on <= %s"
                 params.append(date_to)
             query += " order by captured_at desc limit %s"
             params.append(limit)
@@ -484,7 +502,7 @@ class SupabaseAttendanceEventStore:
 
     @staticmethod
     def _row_to_event(row) -> AttendanceEvent:
-        return AttendanceEvent(
+        return enrich_with_schedule(AttendanceEvent(
             event_id=row[0],
             person_id=row[1],
             employee_name=row[2],
@@ -497,7 +515,7 @@ class SupabaseAttendanceEventStore:
             accepted=bool(row[9]),
             duplicate=bool(row[10]),
             created_at=row[11],
-        )
+        ))
 
     @staticmethod
     def _is_duplicate(

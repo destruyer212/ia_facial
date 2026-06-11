@@ -29,6 +29,15 @@ class LocalIncidentStore:
             incidents = [incident for incident in incidents if incident.person_id == person_id]
         return incidents[-limit:]
 
+    def delete_by_person(self, person_id: str) -> int:
+        person_id = person_id.strip()
+        incidents = self._load()
+        remaining = [incident for incident in incidents if incident.person_id != person_id]
+        deleted = len(incidents) - len(remaining)
+        if deleted:
+            self._save(remaining)
+        return deleted
+
     def _load(self) -> list[AttendanceIncident]:
         if not self.path.exists():
             return []

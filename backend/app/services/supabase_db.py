@@ -92,19 +92,41 @@ def ensure_person(
     full_name: str,
     email: str | None = None,
     employee_code: str | None = None,
+    area_code: str | None = None,
+    position_code: str | None = None,
+    dni: str | None = None,
+    registration_status: str = "FACE_REGISTERED",
 ) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """
-            insert into public.persons (person_id, org_id, full_name, email, employee_code)
-            values (%s, %s, %s, %s, %s)
+            insert into public.persons (
+              person_id, org_id, full_name, email, employee_code, area_code, position_code,
+              dni, registration_status, face_registered_at
+            )
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, now())
             on conflict (person_id) do update set
               full_name = excluded.full_name,
               email = coalesce(excluded.email, public.persons.email),
               employee_code = coalesce(excluded.employee_code, public.persons.employee_code),
+              area_code = coalesce(excluded.area_code, public.persons.area_code),
+              position_code = coalesce(excluded.position_code, public.persons.position_code),
+              dni = coalesce(excluded.dni, public.persons.dni),
+              registration_status = excluded.registration_status,
+              face_registered_at = coalesce(public.persons.face_registered_at, now()),
               updated_at = now()
             """,
-            (person_id, org_id, full_name, email, employee_code or person_id),
+            (
+                person_id,
+                org_id,
+                full_name,
+                email,
+                employee_code or person_id,
+                area_code,
+                position_code,
+                dni,
+                registration_status,
+            ),
         )
 
 

@@ -5,9 +5,14 @@ const state = {
   facesFingerprint: "",
   camera: {
     stream: null,
+    meshOverlay: null,
     scanTimer: null,
     scanning: false,
     speakingEnabled: true,
+    speechReady: false,
+    preferredVoice: null,
+    speechQueue: [],
+    speechBusy: false,
     attendanceCooldownMs: 12_000,
     lastAttendanceByPerson: {},
     policy: null,
@@ -22,11 +27,24 @@ const state = {
     check_outs: 0,
     duplicates: 0,
     rejected: 0,
+    late: 0,
+    early_exits: 0,
   },
   registerProgressTimer: null,
   registerElapsedTimer: null,
   toastTimer: null,
   registerInProgress: false,
+  registerScanner: null,
+  registerScanComplete: false,
+  registerScanStarting: false,
+  registerExpectedCode: "",
+  employeeCatalog: null,
+  schedule: null,
+  scheduleFingerprint: "",
+  preRegistrations: [],
+  preRegistrationsFingerprint: "",
+  admin: null,
+  adminFingerprint: "",
   backgroundRefreshPaused: false,
   refreshTimer: null,
 };
@@ -42,7 +60,18 @@ const registerStatusDetail = document.querySelector("#register-status-detail");
 const registerProgress = document.querySelector("#register-progress");
 const registerProgressBar = document.querySelector("#register-progress-bar");
 const registerFilesSummary = document.querySelector("#register-files-summary");
+const registerStartScanBtn = document.querySelector("#register-start-scan-btn");
+const registerCameraPreview = document.querySelector("#register-camera-preview");
+const registerCameraMesh = document.querySelector("#register-camera-mesh");
+const registerFaceCircle = document.querySelector("#register-face-circle");
+const registerScanStep = document.querySelector("#register-scan-step");
+const registerScanHint = document.querySelector("#register-scan-hint");
+const registerScanProgress = document.querySelector("#register-scan-progress");
+const registerAreaSelect = document.querySelector("#register-area-code");
+const registerPositionSelect = document.querySelector("#register-position-code");
+const registerEmployeeCodeInput = document.querySelector("#register-employee-code");
 const cameraPreview = document.querySelector("#face-camera-preview");
+const scanCameraMesh = document.querySelector("#scan-camera-mesh");
 const cameraCanvas = document.querySelector("#face-camera-canvas");
 const startCameraBtn = document.querySelector("#start-camera-btn");
 const stopCameraBtn = document.querySelector("#stop-camera-btn");
@@ -53,6 +82,7 @@ const scanModeCheckInBtn = document.querySelector("#scan-mode-check-in");
 const scanModeCheckOutBtn = document.querySelector("#scan-mode-check-out");
 const scanModeLabel = document.querySelector("#scan-mode-label");
 const autoScanInput = document.querySelector("#camera-auto-scan");
+const voiceAssistantInput = document.querySelector("#voice-assistant-enabled");
 const livenessEnabledInput = document.querySelector("#liveness-enabled");
 const livenessStepsEl = document.querySelector("#liveness-steps");
 const cameraStatus = document.querySelector("#camera-status");
@@ -66,10 +96,25 @@ const scanResultTitle = document.querySelector("#scan-result-title");
 const scanResultDetail = document.querySelector("#scan-result-detail");
 const userEditDialog = document.querySelector("#user-edit-dialog");
 const userEditForm = document.querySelector("#user-edit-form");
+const userEditShiftSelect = document.querySelector("#user-edit-shift-code");
 const showInactiveUsersInput = document.querySelector("#show-inactive-users");
 const userPhotoInput = document.querySelector("#user-photo-input");
 const eventEditDialog = document.querySelector("#event-edit-dialog");
 const eventEditForm = document.querySelector("#event-edit-form");
+const organizationForm = document.querySelector("#organization-form");
+const areaForm = document.querySelector("#area-form");
+const positionForm = document.querySelector("#position-form");
+const deviceForm = document.querySelector("#device-form");
+const settingsForm = document.querySelector("#system-settings-form");
+const adminAreaSelect = document.querySelector("#admin-position-area");
+const registerShiftSelect = document.querySelector("#register-shift-code");
+const shiftAssignmentForm = document.querySelector("#shift-assignment-form");
+const shiftEmployeeSelect = document.querySelector("#shift-employee-select");
+const shiftCodeSelect = document.querySelector("#shift-code-select");
+const preRegisterForm = document.querySelector("#pre-register-form");
+const preRegisterAreaSelect = document.querySelector("#pre-register-area-code");
+const preRegisterPositionSelect = document.querySelector("#pre-register-position-code");
+const preRegisterShiftSelect = document.querySelector("#pre-register-shift-code");
 
 document.querySelector("#today-label").textContent = new Intl.DateTimeFormat("es-PE", {
   weekday: "long",
@@ -80,22 +125,34 @@ document.querySelector("#today-label").textContent = new Intl.DateTimeFormat("es
 
 const viewTitles = {
   overview: "Panel de asistencia facial",
-  attendance: "Registro de asistencia",
+  attendance: "Centro de marcacion facial",
   register: "Registrar rostro",
   scan: "Escanear y marcar asistencia",
   users: "Usuarios registrados",
   reports: "Reporte de entradas y salidas",
   incidents: "Incidencias de salida",
+  organization: "Organizacion",
+  areas: "Areas y cargos",
+  schedules: "Horarios y turnos",
+  preregistration: "Trabajadores con Token",
+  devices: "Dispositivos",
+  settings: "Configuracion del sistema",
 };
 
 const viewSubtitles = {
   overview: "Resumen en tiempo real de tu operacion",
-  attendance: "Registro manual y validacion de salidas",
-  register: "Perfil facial multi-pose para reconocimiento robusto",
+  attendance: "Marcacion biometrica por camara, movil y dispositivos edge",
+  register: "Escaneo facial en vivo con malla 3D y validacion automatica",
   scan: "Reconocimiento facial en vivo con anti-spoofing",
   users: "Colaboradores con perfil facial activo",
   reports: "Consulta, filtra y corrige marcas de asistencia",
   incidents: "Salidas anticipadas y violaciones de politica",
+  organization: "Datos principales de la empresa y sedes",
+  areas: "Catalogo jerarquico usado para codigos de empleados",
+  schedules: "Turnos TM/TT, asignacion y reglas de tardanza",
+  preregistration: "Pre-registro masivo para app movil con token seguro",
+  devices: "Camaras, kioskos y PCs autorizadas para marcar asistencia",
+  settings: "Parametros operativos del reconocimiento facial",
 };
 
 function setViewHeader(viewKey) {
@@ -103,6 +160,18 @@ function setViewHeader(viewKey) {
   const subtitle = document.querySelector("#view-subtitle");
   if (title) title.textContent = viewTitles[viewKey] || "IA Facial";
   if (subtitle) subtitle.textContent = viewSubtitles[viewKey] || "";
+}
+
+function openDashboardView(viewKey) {
+  const button = document.querySelector(`.nav-item[data-view="${viewKey}"]`);
+  if (button) {
+    button.click();
+    return;
+  }
+  document.querySelectorAll(".nav-item").forEach((item) => item.classList.remove("active"));
+  document.querySelectorAll(".view").forEach((view) => view.classList.remove("active"));
+  document.querySelector(`#view-${viewKey}`)?.classList.add("active");
+  setViewHeader(viewKey);
 }
 
 document.querySelectorAll(".nav-item").forEach((button) => {
@@ -115,6 +184,30 @@ document.querySelectorAll(".nav-item").forEach((button) => {
     if (button.dataset.view !== "scan") {
       stopCamera();
     }
+    if (button.dataset.view !== "register") {
+      stopRegisterScanner();
+    }
+    if (button.dataset.view === "register") {
+      initEmployeeCatalog().catch(() => {});
+      refreshScheduleOverview().catch(() => {});
+    }
+    if (button.dataset.view === "attendance") {
+      refreshEvents().catch(() => {});
+      renderAttendanceOps();
+    }
+    if (button.dataset.view === "reports") {
+      refreshReport().catch(() => showToast("No se pudo cargar el reporte", 5000, "error"));
+    }
+    if (["organization", "areas", "devices", "settings"].includes(button.dataset.view)) {
+      refreshAdminOverview().catch(() => showToast("No se pudo cargar administracion", 5000, "error"));
+    }
+    if (button.dataset.view === "schedules") {
+      refreshScheduleOverview(true).catch(() => showToast("No se pudo cargar horarios", 5000, "error"));
+    }
+    if (button.dataset.view === "preregistration") {
+      Promise.all([initEmployeeCatalog(), refreshScheduleOverview(), refreshPreRegistrations(true)])
+        .catch(() => showToast("No se pudo cargar pre-registros", 5000, "error"));
+    }
   });
 });
 
@@ -125,10 +218,26 @@ document.querySelector("#report-filters")?.addEventListener("submit", handleRepo
 document.querySelector("#report-table-wrap")?.addEventListener("click", handleReportTableAction);
 eventEditForm?.addEventListener("submit", submitEventEdit);
 document.querySelector("#event-edit-cancel")?.addEventListener("click", closeEventEditDialog);
-document.querySelector("#event-form").addEventListener("submit", submitAttendanceEvent);
-document.querySelector("#exit-form").addEventListener("submit", submitExitAttempt);
+document.querySelector("#event-form")?.addEventListener("submit", submitAttendanceEvent);
+document.querySelector("#exit-form")?.addEventListener("submit", submitExitAttempt);
+document.querySelector("#attendance-open-scan")?.addEventListener("click", () => openDashboardView("scan"));
+document.querySelector("#attendance-open-reports")?.addEventListener("click", () => openDashboardView("reports"));
+document.querySelector("#attendance-refresh-events")?.addEventListener("click", () => {
+  refreshEvents().catch(() => showToast("No se pudo actualizar actividad", 5000, "error"));
+});
+document.querySelector("#view-attendance")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-open-view]");
+  if (!button) return;
+  openDashboardView(button.dataset.openView);
+});
 document.querySelector("#face-register-form").addEventListener("submit", submitFaceRegister);
+registerStartScanBtn?.addEventListener("click", (event) => {
+  event.preventDefault();
+  startRegisterFaceScan();
+});
 faceRegisterForm?.addEventListener("change", handleRegisterFormChange);
+registerAreaSelect?.addEventListener("change", handleRegisterAreaChange);
+registerPositionSelect?.addEventListener("change", () => refreshRegisterEmployeeCode());
 startCameraBtn?.addEventListener("click", startCamera);
 stopCameraBtn?.addEventListener("click", stopCamera);
 scanCameraBtn?.addEventListener("click", () => scanFromCamera());
@@ -137,19 +246,59 @@ scanCheckOutBtn?.addEventListener("click", () => scanWithEventType("check_out"))
 scanModeCheckInBtn?.addEventListener("click", () => setScanEventType("check_in"));
 scanModeCheckOutBtn?.addEventListener("click", () => setScanEventType("check_out"));
 autoScanInput?.addEventListener("change", toggleAutoScan);
+voiceAssistantInput?.addEventListener("change", () => {
+  state.camera.speakingEnabled = voiceAssistantInput.checked;
+  if (!voiceAssistantInput.checked) {
+    stopSpeech();
+  }
+});
 setScanEventType("check_in");
+if (voiceAssistantInput) {
+  state.camera.speakingEnabled = voiceAssistantInput.checked;
+}
+initSpeechSynthesis();
 document.querySelector("#registered-users")?.addEventListener("click", handleUserCardAction);
 userEditForm?.addEventListener("submit", submitUserEdit);
 document.querySelector("#user-edit-cancel")?.addEventListener("click", closeUserEditDialog);
 showInactiveUsersInput?.addEventListener("change", renderRegisteredUsers);
 userPhotoInput?.addEventListener("change", handleQuickPhotoSelected);
+organizationForm?.addEventListener("submit", submitOrganizationForm);
+areaForm?.addEventListener("submit", submitAreaForm);
+positionForm?.addEventListener("submit", submitPositionForm);
+deviceForm?.addEventListener("submit", submitDeviceForm);
+settingsForm?.addEventListener("submit", submitSettingsForm);
+document.querySelector("#reload-admin")?.addEventListener("click", () => {
+  refreshAdminOverview(true).catch(() => showToast("No se pudo recargar administracion", 5000, "error"));
+});
+document.querySelector("#admin-areas-list")?.addEventListener("click", handleAdminAreaAction);
+document.querySelector("#admin-positions-list")?.addEventListener("click", handleAdminPositionAction);
+document.querySelector("#admin-devices-list")?.addEventListener("click", handleAdminDeviceAction);
+shiftAssignmentForm?.addEventListener("submit", submitShiftAssignmentForm);
+preRegisterForm?.addEventListener("submit", submitPreRegisterForm);
+preRegisterAreaSelect?.addEventListener("change", handlePreRegisterAreaChange);
+document.querySelector("#pre-registrations-list")?.addEventListener("click", handlePreRegistrationAction);
+document.querySelector("#reload-pre-registrations")?.addEventListener("click", () => {
+  refreshPreRegistrations(true).catch(() => showToast("No se pudo recargar tokens", 5000, "error"));
+});
+document.querySelector("#reload-schedules")?.addEventListener("click", () => {
+  refreshScheduleOverview(true).catch(() => showToast("No se pudo recargar horarios", 5000, "error"));
+});
 
 refreshAll();
+refreshAdminOverview().catch(() => {});
+refreshScheduleOverview().catch(() => {});
+refreshPreRegistrations().catch(() => {});
 setViewHeader("overview");
 state.refreshTimer = window.setInterval(() => {
   refreshAll().catch(() => {});
 }, 30_000);
-if (faceRegisterForm) updateRegisterFilesSummary(faceRegisterForm);
+if (faceRegisterForm) {
+  updateRegisterFilesSummary(faceRegisterForm);
+  setRegisterStatus("idle", "Listo para escanear", "Selecciona area y cargo, completa el nombre y pulsa Iniciar escaneo facial.");
+  initEmployeeCatalog().catch(() => {});
+  refreshScheduleOverview().catch(() => {});
+  renderPreRegisterOptions();
+}
 
 function pauseBackgroundRefresh(paused) {
   state.backgroundRefreshPaused = paused;
@@ -163,7 +312,8 @@ async function refreshAll() {
   if (state.backgroundRefreshPaused || state.registerInProgress) return;
   const activeView = document.querySelector(".nav-item.active")?.dataset.view || "";
   const tasks = [refreshHealth(), refreshEvents(), refreshIncidents()];
-  if (activeView !== "scan") {
+  const viewsNeedingFaces = ["overview", "users", "register", "scan"];
+  if (viewsNeedingFaces.includes(activeView)) {
     tasks.push(refreshFaces());
   }
   if (activeView === "reports") {
@@ -171,6 +321,18 @@ async function refreshAll() {
   }
   if (activeView === "scan" || state.camera.stream) {
     tasks.push(refreshAttendancePolicy());
+  }
+  if (["organization", "areas", "devices", "settings"].includes(activeView)) {
+    tasks.push(refreshAdminOverview());
+  }
+  if (["schedules", "register", "users", "reports"].includes(activeView)) {
+    tasks.push(refreshScheduleOverview());
+  }
+  if (activeView === "preregistration") {
+    tasks.push(refreshPreRegistrations());
+  }
+  if (activeView === "attendance") {
+    tasks.push(refreshEvents());
   }
   await Promise.allSettled(tasks);
   renderDashboard();
@@ -181,6 +343,833 @@ async function refreshAttendancePolicy() {
     state.camera.policy = await requestJson("/api/v1/attendance/policy");
   } catch (error) {
     state.camera.policy = null;
+  }
+}
+
+async function refreshAdminOverview(force = false) {
+  const data = await requestJson("/api/v1/admin/overview");
+  const fingerprint = JSON.stringify({
+    organization: data.organization,
+    areas: data.areas,
+    positions: data.positions,
+    devices: data.devices,
+    settings: data.settings,
+  });
+  if (!force && fingerprint === state.adminFingerprint) return data;
+  state.admin = data;
+  state.adminFingerprint = fingerprint;
+  applyAdminSettings(data.settings);
+  renderAdminViews();
+  return data;
+}
+
+function applyAdminSettings(settings) {
+  if (!settings) return;
+  state.camera.attendanceCooldownMs = Number(settings.attendance_cooldown_ms || 12_000);
+  if (livenessEnabledInput) {
+    livenessEnabledInput.checked = Boolean(settings.liveness_enabled);
+  }
+  if (voiceAssistantInput) {
+    voiceAssistantInput.checked = Boolean(settings.voice_enabled);
+    state.camera.speakingEnabled = voiceAssistantInput.checked;
+  }
+}
+
+function renderAdminViews() {
+  renderOrganizationForm();
+  renderAreasAndPositions();
+  renderDevicesAdmin();
+  renderSettingsForm();
+}
+
+function renderOrganizationForm() {
+  if (!organizationForm || !state.admin?.organization) return;
+  const org = state.admin.organization;
+  formField(organizationForm, "code").value = org.code || "";
+  formField(organizationForm, "name").value = org.name || "";
+  formField(organizationForm, "ruc").value = org.ruc || "";
+  formField(organizationForm, "logo_url").value = org.logo_url || "";
+  formField(organizationForm, "address").value = org.address || "";
+  formField(organizationForm, "timezone").value = org.timezone || "America/Lima";
+  formField(organizationForm, "sites").value = (org.sites || [])
+    .map((site) => [site.code, site.name, site.address || "", site.is_active === false ? "inactive" : "active"].join(" | "))
+    .join("\n");
+  const summary = document.querySelector("#organization-summary");
+  if (summary) {
+    summary.innerHTML = `
+      <article class="admin-summary-item">
+        <span>Empresa</span>
+        <strong>${escapeHtml(org.name || "-")}</strong>
+      </article>
+      <article class="admin-summary-item">
+        <span>RUC</span>
+        <strong>${escapeHtml(org.ruc || "Pendiente")}</strong>
+      </article>
+      <article class="admin-summary-item">
+        <span>Sedes</span>
+        <strong>${(org.sites || []).length}</strong>
+      </article>
+    `;
+  }
+  renderAdminWarnings();
+}
+
+function renderAreasAndPositions() {
+  if (!state.admin) return;
+  const areas = state.admin.areas || [];
+  const positions = state.admin.positions || [];
+  if (adminAreaSelect) {
+    const current = adminAreaSelect.value;
+    adminAreaSelect.innerHTML = [
+      '<option value="">Selecciona area...</option>',
+      ...areas.map(
+        (area) =>
+          `<option value="${escapeHtml(area.code)}">${escapeHtml(area.name)} (${escapeHtml(area.code)})</option>`,
+      ),
+    ].join("");
+    adminAreaSelect.value = current;
+  }
+  const areaList = document.querySelector("#admin-areas-list");
+  if (areaList) {
+    areaList.innerHTML = areas.length
+      ? areas
+          .map((area) => {
+            const count = positions.filter((position) => position.area_code === area.code).length;
+            const badge = area.is_active ? "ok" : "bad";
+            const label = area.is_active ? "Activo" : "Inactivo";
+            return `
+              <article class="admin-row">
+                <div>
+                  <strong>${escapeHtml(area.name)}</strong>
+                  <small><code>${escapeHtml(area.code)}</code> - ${count} cargo(s) - Orden ${area.sort_order}</small>
+                </div>
+                <div class="admin-row-actions">
+                  <span class="badge ${badge}">${label}</span>
+                  <button class="ghost-btn" type="button" data-admin-action="edit-area" data-area-code="${escapeHtml(area.code)}">Editar</button>
+                  <button class="${area.is_active ? "danger-btn" : "ghost-btn"}" type="button" data-admin-action="toggle-area" data-area-code="${escapeHtml(area.code)}" data-next-active="${area.is_active ? "false" : "true"}">${area.is_active ? "Desactivar" : "Activar"}</button>
+                </div>
+              </article>`;
+          })
+          .join("")
+      : emptyAdminState("Sin areas", "Crea la primera area para organizar empleados");
+  }
+  const positionList = document.querySelector("#admin-positions-list");
+  if (positionList) {
+    positionList.innerHTML = positions.length
+      ? positions
+          .map((position) => {
+            const area = areas.find((item) => item.code === position.area_code);
+            const badge = position.is_active ? "ok" : "bad";
+            const label = position.is_active ? "Activo" : "Inactivo";
+            return `
+              <article class="admin-row">
+                <div>
+                  <strong>${escapeHtml(position.name)}</strong>
+                  <small><code>${escapeHtml(position.area_code)}-${escapeHtml(position.code)}</code> - ${escapeHtml(area?.name || "Area no encontrada")} - Orden ${position.sort_order}</small>
+                </div>
+                <div class="admin-row-actions">
+                  <span class="badge ${badge}">${label}</span>
+                  <button class="ghost-btn" type="button" data-admin-action="edit-position" data-area-code="${escapeHtml(position.area_code)}" data-position-code="${escapeHtml(position.code)}">Editar</button>
+                  <button class="${position.is_active ? "danger-btn" : "ghost-btn"}" type="button" data-admin-action="toggle-position" data-area-code="${escapeHtml(position.area_code)}" data-position-code="${escapeHtml(position.code)}" data-next-active="${position.is_active ? "false" : "true"}">${position.is_active ? "Desactivar" : "Activar"}</button>
+                </div>
+              </article>`;
+          })
+          .join("")
+      : emptyAdminState("Sin cargos", "Crea cargos dentro de cada area");
+  }
+  renderAdminWarnings();
+}
+
+function renderDevicesAdmin() {
+  if (!state.admin) return;
+  const devices = state.admin.devices || [];
+  const list = document.querySelector("#admin-devices-list");
+  if (list) {
+    list.innerHTML = devices.length
+      ? devices
+          .map((device) => {
+            const statusBadge = device.online ? "ok" : (device.is_active ? "warn" : "bad");
+            const status = device.online ? "Online" : (device.is_active ? "Sin actividad" : "Inactivo");
+            return `
+              <article class="admin-row">
+                <div>
+                  <strong>${escapeHtml(device.label || device.device_id)}</strong>
+                  <small><code>${escapeHtml(device.device_id)}</code> - ${escapeHtml(device.kind || "edge")} - ${escapeHtml(device.location || "Sin ubicacion")} - Ultima actividad: ${formatDate(device.last_seen_at)}</small>
+                </div>
+                <div class="admin-row-actions">
+                  <span class="badge ${statusBadge}">${status}</span>
+                  <button class="ghost-btn" type="button" data-admin-action="edit-device" data-device-id="${escapeHtml(device.device_id)}">Editar</button>
+                  <button class="${device.is_active ? "danger-btn" : "ghost-btn"}" type="button" data-admin-action="toggle-device" data-device-id="${escapeHtml(device.device_id)}" data-next-active="${device.is_active ? "false" : "true"}">${device.is_active ? "Desactivar" : "Activar"}</button>
+                </div>
+              </article>`;
+          })
+          .join("")
+      : emptyAdminState("Sin dispositivos", "Registra una camara, PC o kiosko");
+  }
+  renderAdminWarnings();
+}
+
+function renderSettingsForm() {
+  if (!settingsForm || !state.admin?.settings) return;
+  const settings = state.admin.settings;
+  formField(settingsForm, "camera_device_id").value = settings.camera_device_id || "dashboard-camera-001";
+  formField(settingsForm, "attendance_cooldown_ms").value = settings.attendance_cooldown_ms ?? 12000;
+  formField(settingsForm, "face_match_threshold").value = settings.face_match_threshold ?? 0.35;
+  formField(settingsForm, "face_scan_match_threshold").value = settings.face_scan_match_threshold ?? 0.48;
+  formField(settingsForm, "default_scheduled_exit_time").value = settings.default_scheduled_exit_time || "22:00";
+  formField(settingsForm, "default_exit_tolerance_minutes").value = settings.default_exit_tolerance_minutes ?? 10;
+  formField(settingsForm, "liveness_enabled").checked = Boolean(settings.liveness_enabled);
+  formField(settingsForm, "voice_enabled").checked = Boolean(settings.voice_enabled);
+  const runtime = document.querySelector("#settings-runtime");
+  if (runtime) {
+    runtime.innerHTML = `
+      <article class="admin-summary-item">
+        <span>Storage</span>
+        <strong>${escapeHtml(settings.storage_backend)}</strong>
+      </article>
+      <article class="admin-summary-item">
+        <span>Modo JSON</span>
+        <strong>${settings.json_mode ? "Activo" : "No"}</strong>
+      </article>
+      <article class="admin-summary-item">
+        <span>R2</span>
+        <strong>${settings.r2_enabled ? "Configurado" : "Pendiente"}</strong>
+      </article>
+    `;
+  }
+  renderAdminWarnings();
+}
+
+function renderAdminWarnings() {
+  const warningBox = document.querySelector("#admin-warnings");
+  if (!warningBox) return;
+  const warnings = state.admin?.warnings || [];
+  if (!warnings.length) {
+    warningBox.classList.add("hidden");
+    warningBox.innerHTML = "";
+    return;
+  }
+  warningBox.classList.remove("hidden");
+  warningBox.innerHTML = warnings.map((item) => `<p>${escapeHtml(item)}</p>`).join("");
+}
+
+function emptyAdminState(title, detail) {
+  return `
+    <div class="empty-state compact-empty">
+      <span class="empty-icon">o</span>
+      <p>${escapeHtml(title)}</p>
+      <small>${escapeHtml(detail)}</small>
+    </div>`;
+}
+
+function formField(form, name) {
+  return form.elements[name];
+}
+
+async function submitOrganizationForm(event) {
+  event.preventDefault();
+  const submitBtn = organizationForm?.querySelector('[type="submit"]');
+  const defaultLabel = submitBtn?.dataset.defaultLabel || submitBtn?.textContent || "Guardar";
+  setButtonLoading(submitBtn, true, "Guardando...", defaultLabel);
+  const form = new FormData(organizationForm);
+  const payload = {
+    name: String(form.get("name") || "").trim(),
+    timezone: String(form.get("timezone") || "").trim() || "America/Lima",
+    ruc: String(form.get("ruc") || "").trim() || null,
+    logo_url: String(form.get("logo_url") || "").trim() || null,
+    address: String(form.get("address") || "").trim() || null,
+    sites: parseSites(String(form.get("sites") || "")),
+  };
+  try {
+    const data = await requestJson("/api/v1/admin/organization", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    state.admin.organization = data.organization;
+    state.adminFingerprint = "";
+    renderOrganizationForm();
+    showToast(data.message || "Organizacion guardada", 4000, "success");
+  } catch (error) {
+    showToast(parseApiError(error), 6000, "error");
+  } finally {
+    setButtonLoading(submitBtn, false, "", defaultLabel);
+  }
+}
+
+async function submitAreaForm(event) {
+  event.preventDefault();
+  const form = new FormData(areaForm);
+  const payload = {
+    code: String(form.get("code") || "").trim().toUpperCase(),
+    name: String(form.get("name") || "").trim(),
+    sort_order: Number(form.get("sort_order") || 0),
+    is_active: form.get("is_active") === "on",
+  };
+  try {
+    const data = await requestJson("/api/v1/admin/areas", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    showToast(data.message || "Area guardada", 4000, "success");
+    areaForm.reset();
+    formField(areaForm, "is_active").checked = true;
+    state.employeeCatalog = null;
+    await refreshAdminOverview(true);
+  } catch (error) {
+    showToast(parseApiError(error), 6000, "error");
+  }
+}
+
+async function submitPositionForm(event) {
+  event.preventDefault();
+  const form = new FormData(positionForm);
+  const payload = {
+    area_code: String(form.get("area_code") || "").trim().toUpperCase(),
+    code: String(form.get("code") || "").trim().toUpperCase(),
+    name: String(form.get("name") || "").trim(),
+    sort_order: Number(form.get("sort_order") || 0),
+    is_active: form.get("is_active") === "on",
+  };
+  try {
+    const data = await requestJson("/api/v1/admin/positions", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    showToast(data.message || "Cargo guardado", 4000, "success");
+    const currentArea = formField(positionForm, "area_code").value;
+    positionForm.reset();
+    formField(positionForm, "area_code").value = currentArea;
+    formField(positionForm, "is_active").checked = true;
+    state.employeeCatalog = null;
+    await refreshAdminOverview(true);
+  } catch (error) {
+    showToast(parseApiError(error), 6000, "error");
+  }
+}
+
+async function submitDeviceForm(event) {
+  event.preventDefault();
+  const form = new FormData(deviceForm);
+  const payload = {
+    device_id: String(form.get("device_id") || "").trim(),
+    label: String(form.get("label") || "").trim(),
+    kind: String(form.get("kind") || "edge").trim() || "edge",
+    location: String(form.get("location") || "").trim() || null,
+    is_active: form.get("is_active") === "on",
+  };
+  try {
+    const data = await requestJson("/api/v1/admin/devices", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    showToast(data.message || "Dispositivo guardado", 4000, "success");
+    deviceForm.reset();
+    formField(deviceForm, "kind").value = "edge";
+    formField(deviceForm, "is_active").checked = true;
+    await refreshAdminOverview(true);
+  } catch (error) {
+    showToast(parseApiError(error), 6000, "error");
+  }
+}
+
+async function submitSettingsForm(event) {
+  event.preventDefault();
+  const form = new FormData(settingsForm);
+  const payload = {
+    camera_device_id: String(form.get("camera_device_id") || "").trim() || "dashboard-camera-001",
+    liveness_enabled: form.get("liveness_enabled") === "on",
+    voice_enabled: form.get("voice_enabled") === "on",
+    attendance_cooldown_ms: Number(form.get("attendance_cooldown_ms") || 12000),
+    face_match_threshold: Number(form.get("face_match_threshold") || 0.35),
+    face_scan_match_threshold: Number(form.get("face_scan_match_threshold") || 0.48),
+    default_scheduled_exit_time: String(form.get("default_scheduled_exit_time") || "22:00"),
+    default_exit_tolerance_minutes: Number(form.get("default_exit_tolerance_minutes") || 10),
+  };
+  try {
+    const data = await requestJson("/api/v1/admin/settings", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    state.admin.settings = data.settings;
+    applyAdminSettings(data.settings);
+    renderSettingsForm();
+    showToast(data.message || "Configuracion guardada", 4000, "success");
+  } catch (error) {
+    showToast(parseApiError(error), 6000, "error");
+  }
+}
+
+async function handleAdminAreaAction(event) {
+  const button = event.target.closest("[data-admin-action]");
+  if (!button) return;
+  const areaCode = button.dataset.areaCode;
+  const area = state.admin?.areas?.find((item) => item.code === areaCode);
+  if (!area) return;
+  if (button.dataset.adminAction === "edit-area") {
+    formField(areaForm, "code").value = area.code;
+    formField(areaForm, "name").value = area.name;
+    formField(areaForm, "sort_order").value = area.sort_order;
+    formField(areaForm, "is_active").checked = area.is_active;
+    formField(areaForm, "code").focus();
+    return;
+  }
+  if (button.dataset.adminAction === "toggle-area") {
+    await updateAdminArea(areaCode, { is_active: button.dataset.nextActive === "true" });
+  }
+}
+
+async function handleAdminPositionAction(event) {
+  const button = event.target.closest("[data-admin-action]");
+  if (!button) return;
+  const areaCode = button.dataset.areaCode;
+  const positionCode = button.dataset.positionCode;
+  const position = state.admin?.positions?.find(
+    (item) => item.area_code === areaCode && item.code === positionCode,
+  );
+  if (!position) return;
+  if (button.dataset.adminAction === "edit-position") {
+    formField(positionForm, "area_code").value = position.area_code;
+    formField(positionForm, "code").value = position.code;
+    formField(positionForm, "name").value = position.name;
+    formField(positionForm, "sort_order").value = position.sort_order;
+    formField(positionForm, "is_active").checked = position.is_active;
+    formField(positionForm, "code").focus();
+    return;
+  }
+  if (button.dataset.adminAction === "toggle-position") {
+    await updateAdminPosition(areaCode, positionCode, { is_active: button.dataset.nextActive === "true" });
+  }
+}
+
+async function handleAdminDeviceAction(event) {
+  const button = event.target.closest("[data-admin-action]");
+  if (!button) return;
+  const deviceId = button.dataset.deviceId;
+  const device = state.admin?.devices?.find((item) => item.device_id === deviceId);
+  if (!device) return;
+  if (button.dataset.adminAction === "edit-device") {
+    formField(deviceForm, "device_id").value = device.device_id;
+    formField(deviceForm, "label").value = device.label;
+    formField(deviceForm, "kind").value = device.kind || "edge";
+    formField(deviceForm, "location").value = device.location || "";
+    formField(deviceForm, "is_active").checked = device.is_active;
+    formField(deviceForm, "device_id").focus();
+    return;
+  }
+  if (button.dataset.adminAction === "toggle-device") {
+    await updateAdminDevice(deviceId, { is_active: button.dataset.nextActive === "true" });
+  }
+}
+
+async function updateAdminArea(areaCode, payload) {
+  try {
+    const data = await requestJson(`/api/v1/admin/areas/${encodeURIComponent(areaCode)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    showToast(data.message || "Area actualizada", 4000, "success");
+    state.employeeCatalog = null;
+    await refreshAdminOverview(true);
+  } catch (error) {
+    showToast(parseApiError(error), 6000, "error");
+  }
+}
+
+async function updateAdminPosition(areaCode, positionCode, payload) {
+  try {
+    const data = await requestJson(
+      `/api/v1/admin/positions/${encodeURIComponent(areaCode)}/${encodeURIComponent(positionCode)}`,
+      { method: "PATCH", body: JSON.stringify(payload) },
+    );
+    showToast(data.message || "Cargo actualizado", 4000, "success");
+    state.employeeCatalog = null;
+    await refreshAdminOverview(true);
+  } catch (error) {
+    showToast(parseApiError(error), 6000, "error");
+  }
+}
+
+async function updateAdminDevice(deviceId, payload) {
+  try {
+    const data = await requestJson(`/api/v1/admin/devices/${encodeURIComponent(deviceId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    showToast(data.message || "Dispositivo actualizado", 4000, "success");
+    await refreshAdminOverview(true);
+  } catch (error) {
+    showToast(parseApiError(error), 6000, "error");
+  }
+}
+
+function parseSites(value) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((line, index) => {
+      const parts = line.split("|").map((part) => part.trim());
+      const name = parts[1] || parts[0];
+      if (!name) return null;
+      const code = (parts[1] ? parts[0] : buildSiteCode(name, index)).toUpperCase();
+      return {
+        code,
+        name,
+        address: parts[2] || null,
+        is_active: (parts[3] || "active").toLowerCase() !== "inactive",
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildSiteCode(name, index) {
+  const code = String(name || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 8);
+  return code || `S${index + 1}`;
+}
+
+async function refreshScheduleOverview(force = false) {
+  const data = await requestJson("/api/v1/schedules/overview");
+  const fingerprint = JSON.stringify({
+    shifts: data.shifts,
+    assignments: data.assignments,
+    employees: data.employees?.map((item) => `${item.person_id}:${item.shift_code}:${item.is_active}`),
+  });
+  if (!force && fingerprint === state.scheduleFingerprint) return data;
+  state.schedule = data;
+  state.scheduleFingerprint = fingerprint;
+  renderShiftOptions();
+  renderSchedulesView();
+  return data;
+}
+
+function renderShiftOptions() {
+  const shifts = activeShifts();
+  const options = [
+    '<option value="">Sin turno asignado...</option>',
+    ...shifts.map(
+      (shift) =>
+        `<option value="${escapeHtml(shift.code)}">${escapeHtml(shift.code)} - ${escapeHtml(shift.name)} (${formatTimeShort(shift.start_time)} - ${formatTimeShort(shift.end_time)})</option>`,
+    ),
+  ].join("");
+  if (registerShiftSelect) {
+    const current = registerShiftSelect.value;
+    registerShiftSelect.innerHTML = options;
+    registerShiftSelect.value = current;
+  }
+  if (shiftCodeSelect) {
+    const current = shiftCodeSelect.value;
+    shiftCodeSelect.innerHTML = [
+      '<option value="">Selecciona turno...</option>',
+      ...shifts.map(
+        (shift) =>
+          `<option value="${escapeHtml(shift.code)}">${escapeHtml(shift.code)} - ${escapeHtml(shift.name)}</option>`,
+      ),
+    ].join("");
+    shiftCodeSelect.value = current;
+  }
+  if (shiftEmployeeSelect) {
+    const current = shiftEmployeeSelect.value;
+    const employees = state.schedule?.employees || [];
+    shiftEmployeeSelect.innerHTML = [
+      '<option value="">Selecciona empleado...</option>',
+      ...employees.map(
+        (employee) =>
+          `<option value="${escapeHtml(employee.person_id)}">${escapeHtml(employee.employee_code || employee.person_id)} - ${escapeHtml(employee.name)}</option>`,
+      ),
+    ].join("");
+    shiftEmployeeSelect.value = current;
+  }
+  if (userEditShiftSelect) {
+    const current = userEditShiftSelect.value;
+    userEditShiftSelect.innerHTML = options;
+    userEditShiftSelect.value = current;
+  }
+}
+
+function renderSchedulesView() {
+  renderShiftCards();
+  renderShiftRules();
+  renderEmployeesByShift();
+}
+
+function renderShiftCards() {
+  const container = document.querySelector("#shift-cards");
+  if (!container) return;
+  const shifts = state.schedule?.shifts || [];
+  container.innerHTML = shifts.length
+    ? shifts.map((shift) => {
+        const tardyFrom = addMinutesToTimeLabel(shift.start_time, (shift.tolerance_minutes || 0) + 1);
+        return `
+          <article class="shift-card">
+            <div class="shift-card-header">
+              <span class="shift-code">${escapeHtml(shift.code)}</span>
+              <span class="badge ${shift.is_active ? "ok" : "bad"}">${shift.is_active ? "Activo" : "Inactivo"}</span>
+            </div>
+            <strong>${escapeHtml(shift.name)}</strong>
+            <div class="shift-meta">
+              <span><b>Entrada:</b> ${formatTimeShort(shift.start_time)}</span>
+              <span><b>Salida:</b> ${formatTimeShort(shift.end_time)}</span>
+              <span><b>Horas:</b> ${shift.work_hours}</span>
+              <span><b>Tolerancia:</b> ${shift.tolerance_minutes} min</span>
+              <span><b>Tardanza desde:</b> ${tardyFrom}</span>
+              <span><b>Salida anticipada:</b> antes de ${formatTimeShort(shift.end_time)}</span>
+            </div>
+          </article>
+        `;
+      }).join("")
+    : emptyAdminState("Sin turnos", "Crea o restaura TM/TT");
+}
+
+function renderShiftRules() {
+  const container = document.querySelector("#shift-rules");
+  if (!container) return;
+  const shifts = state.schedule?.shifts || [];
+  container.innerHTML = shifts.map((shift) => {
+    const start = formatTimeShort(shift.start_time);
+    const toleranceEnd = addMinutesToTimeLabel(shift.start_time, shift.tolerance_minutes || 0);
+    const tardyFrom = addMinutesToTimeLabel(shift.start_time, (shift.tolerance_minutes || 0) + 1);
+    return `
+      <article class="admin-row">
+        <div>
+          <strong>${escapeHtml(shift.code)} - ${escapeHtml(shift.name)}</strong>
+          <small>${start} correcto - ${toleranceEnd} correcto - ${tardyFrom} tardanza. Salida antes de ${formatTimeShort(shift.end_time)} = salida anticipada.</small>
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+
+function renderEmployeesByShift() {
+  const container = document.querySelector("#employees-by-shift");
+  if (!container) return;
+  const schedule = state.schedule;
+  if (!schedule) {
+    container.innerHTML = emptyAdminState("Cargando turnos", "Consultando asignaciones");
+    return;
+  }
+  const shifts = [...(schedule.shifts || []), { code: "SIN_TURNO", name: "Sin turno" }];
+  container.innerHTML = shifts.map((shift) => {
+    const employees = schedule.employees_by_shift?.[shift.code] || [];
+    return `
+      <section class="shift-group">
+        <div class="shift-group-header">
+          <strong>${escapeHtml(shift.code)} - ${escapeHtml(shift.name)}</strong>
+          <span class="count-pill">${employees.length} empleado(s)</span>
+        </div>
+        <div class="admin-list">
+          ${employees.length
+            ? employees.map((employee) => `
+                <article class="admin-row">
+                  <div>
+                    <strong>${escapeHtml(employee.name)}</strong>
+                    <small><code>${escapeHtml(employee.employee_code || employee.person_id)}</code> - ${escapeHtml(employee.area_name || "Sin area")} - ${escapeHtml(employee.position_name || "Sin cargo")} - ${escapeHtml(employee.schedule_label || "Sin horario")}</small>
+                  </div>
+                </article>
+              `).join("")
+            : emptyAdminState("Sin empleados", "No hay empleados en este grupo")}
+        </div>
+      </section>
+    `;
+  }).join("");
+}
+
+async function submitShiftAssignmentForm(event) {
+  event.preventDefault();
+  const form = new FormData(shiftAssignmentForm);
+  const personId = String(form.get("person_id") || "").trim();
+  const shiftCode = String(form.get("shift_code") || "").trim().toUpperCase();
+  if (!personId || !shiftCode) {
+    showToast("Selecciona empleado y turno", 4000, "error");
+    return;
+  }
+  try {
+    const data = await requestJson(`/api/v1/schedules/assignments/${encodeURIComponent(personId)}`, {
+      method: "PUT",
+      body: JSON.stringify({ shift_code: shiftCode }),
+    });
+    showToast(data.message || "Turno asignado", 4000, "success");
+    state.facesFingerprint = "";
+    await Promise.all([refreshScheduleOverview(true), refreshFaces()]);
+  } catch (error) {
+    showToast(parseApiError(error), 6000, "error");
+  }
+}
+
+function activeShifts() {
+  return (state.schedule?.shifts || []).filter((shift) => shift.is_active !== false);
+}
+
+function formatTimeShort(value) {
+  return String(value || "").slice(0, 5);
+}
+
+function addMinutesToTimeLabel(value, minutes) {
+  const [hour, minute] = formatTimeShort(value).split(":").map(Number);
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return "--:--";
+  const total = hour * 60 + minute + Number(minutes || 0);
+  const normalized = ((total % 1440) + 1440) % 1440;
+  return `${String(Math.floor(normalized / 60)).padStart(2, "0")}:${String(normalized % 60).padStart(2, "0")}`;
+}
+
+async function refreshPreRegistrations(force = false) {
+  const data = await requestJson("/api/v1/employees/pre-registrations");
+  const workers = data.workers || [];
+  const fingerprint = workers
+    .map((worker) => `${worker.employee_id}:${worker.registration_status}:${worker.token_status}:${worker.updated_at}`)
+    .join("|");
+  if (!force && fingerprint === state.preRegistrationsFingerprint) return data;
+  state.preRegistrations = workers;
+  state.preRegistrationsFingerprint = fingerprint;
+  renderPreRegisterOptions();
+  renderPreRegistrations();
+  return data;
+}
+
+function renderPreRegisterOptions() {
+  if (preRegisterAreaSelect && state.employeeCatalog?.areas) {
+    const current = preRegisterAreaSelect.value;
+    preRegisterAreaSelect.innerHTML = [
+      '<option value="">Selecciona area...</option>',
+      ...state.employeeCatalog.areas.map(
+        (area) => `<option value="${escapeHtml(area.code)}">${escapeHtml(area.name)} (${escapeHtml(area.code)})</option>`,
+      ),
+    ].join("");
+    preRegisterAreaSelect.value = current;
+    handlePreRegisterAreaChange();
+  }
+  if (preRegisterShiftSelect) {
+    const current = preRegisterShiftSelect.value;
+    preRegisterShiftSelect.innerHTML = [
+      '<option value="">Selecciona turno...</option>',
+      ...activeShifts().map(
+        (shift) =>
+          `<option value="${escapeHtml(shift.code)}">${escapeHtml(shift.code)} - ${escapeHtml(shift.name)} (${formatTimeShort(shift.start_time)} - ${formatTimeShort(shift.end_time)})</option>`,
+      ),
+    ].join("");
+    preRegisterShiftSelect.value = current;
+  }
+}
+
+function handlePreRegisterAreaChange() {
+  if (!preRegisterPositionSelect || !state.employeeCatalog?.positions) return;
+  const areaCode = preRegisterAreaSelect?.value || "";
+  const positions = state.employeeCatalog.positions.filter((item) => item.area_code === areaCode);
+  if (!areaCode || !positions.length) {
+    preRegisterPositionSelect.innerHTML = '<option value="">Primero elige un area...</option>';
+    preRegisterPositionSelect.disabled = true;
+    return;
+  }
+  const current = preRegisterPositionSelect.value;
+  preRegisterPositionSelect.disabled = false;
+  preRegisterPositionSelect.innerHTML = [
+    '<option value="">Selecciona cargo...</option>',
+    ...positions.map(
+      (position) =>
+        `<option value="${escapeHtml(position.code)}">${escapeHtml(position.name)} (${escapeHtml(position.code)})</option>`,
+    ),
+  ].join("");
+  preRegisterPositionSelect.value = current;
+}
+
+function renderPreRegistrations() {
+  const list = document.querySelector("#pre-registrations-list");
+  const count = document.querySelector("#pre-registrations-count");
+  if (count) count.textContent = `${state.preRegistrations.length} trabajador(es)`;
+  if (!list) return;
+  if (!state.preRegistrations.length) {
+    list.innerHTML = emptyAdminState("Sin pre-registros", "Crea trabajadores para enviar tokens por Gmail");
+    return;
+  }
+  list.innerHTML = state.preRegistrations
+    .map((worker) => {
+      const status = registrationStatusLabel(worker);
+      return `
+        <article class="admin-row token-worker-row">
+          <div>
+            <strong>${escapeHtml(worker.name)}</strong>
+            <small>
+              <code>${escapeHtml(worker.employee_code)}</code> -
+              DNI ${escapeHtml(worker.dni)} -
+              ${escapeHtml(worker.area_name)} / ${escapeHtml(worker.position_name)} -
+              ${escapeHtml(worker.shift_code)} ${escapeHtml(worker.schedule_label || "")}
+            </small>
+            <small>Correo: ${escapeHtml(worker.email)} - Token vence: ${formatDate(worker.token_expires_at)}</small>
+          </div>
+          <div class="admin-row-actions">
+            <span class="badge ${status.badge}">${status.label}</span>
+            <button class="ghost-btn" type="button" data-token-action="resend" data-employee-id="${escapeHtml(worker.employee_id)}">Reenviar</button>
+            <button class="ghost-btn" type="button" data-token-action="regenerate" data-employee-id="${escapeHtml(worker.employee_id)}">Regenerar</button>
+            <button class="danger-btn" type="button" data-token-action="cancel" data-employee-id="${escapeHtml(worker.employee_id)}">Cancelar</button>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function registrationStatusLabel(worker) {
+  const status = worker.registration_status;
+  if (status === "FACE_REGISTERED") return { label: "Rostro registrado", badge: "ok" };
+  if (status === "TOKEN_EXPIRED" || worker.token_status === "TOKEN_EXPIRED") return { label: "Token vencido", badge: "bad" };
+  if (status === "TOKEN_CANCELLED" || worker.token_status === "TOKEN_CANCELLED") return { label: "Token cancelado", badge: "bad" };
+  if (worker.token_status === "TOKEN_USED") return { label: "Token usado", badge: "ok" };
+  if (status === "TOKEN_SENT") return { label: "Token enviado", badge: "warn" };
+  return { label: "Pendiente", badge: "warn" };
+}
+
+async function submitPreRegisterForm(event) {
+  event.preventDefault();
+  const form = new FormData(preRegisterForm);
+  const payload = {
+    name: String(form.get("name") || "").trim(),
+    dni: String(form.get("dni") || "").trim(),
+    email: String(form.get("email") || "").trim(),
+    area_code: String(form.get("area_code") || "").trim().toUpperCase(),
+    position_code: String(form.get("position_code") || "").trim().toUpperCase(),
+    shift_code: String(form.get("shift_code") || "").trim().toUpperCase(),
+    token_expires_hours: Number(form.get("token_expires_hours") || 48),
+  };
+  try {
+    const data = await requestJson("/api/v1/employees/pre-register", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    showTokenResult(data);
+    preRegisterForm.reset();
+    handlePreRegisterAreaChange();
+    await refreshPreRegistrations(true);
+  } catch (error) {
+    showToast(parseApiError(error), 7000, "error");
+  }
+}
+
+async function handlePreRegistrationAction(event) {
+  const button = event.target.closest("[data-token-action]");
+  if (!button) return;
+  const employeeId = button.dataset.employeeId;
+  const action = button.dataset.tokenAction;
+  const paths = {
+    resend: `/api/v1/employees/${encodeURIComponent(employeeId)}/send-registration-token`,
+    regenerate: `/api/v1/employees/${encodeURIComponent(employeeId)}/regenerate-registration-token`,
+    cancel: `/api/v1/employees/${encodeURIComponent(employeeId)}/cancel-registration-token`,
+  };
+  try {
+    const data = await requestJson(paths[action], { method: "POST" });
+    showTokenResult(data);
+    await refreshPreRegistrations(true);
+  } catch (error) {
+    showToast(parseApiError(error), 7000, "error");
+  }
+}
+
+function showTokenResult(data) {
+  const message = data?.message || "Operacion completada";
+  const devToken = data?.dev_token ? ` Token dev: ${data.dev_token}` : "";
+  showToast(`${message}${devToken}`, data?.dev_token ? 12000 : 5000, data?.email_sent ? "success" : "info");
+  const box = document.querySelector("#pre-register-result");
+  if (box) {
+    box.textContent = JSON.stringify(data, null, 2);
   }
 }
 
@@ -205,8 +1194,9 @@ async function refreshEvents() {
 }
 
 async function refreshReport() {
+  setReportLoading(true);
   const form = document.querySelector("#report-filters");
-  const params = new URLSearchParams({ limit: "300" });
+  const params = new URLSearchParams({ limit: "150" });
   if (form) {
     const filters = new FormData(form);
     const personId = String(filters.get("person_id") || "").trim();
@@ -218,10 +1208,32 @@ async function refreshReport() {
     if (dateFrom) params.set("date_from", dateFrom);
     if (dateTo) params.set("date_to", dateTo);
   }
-  const data = await requestJson(`/api/v1/attendance/events?${params.toString()}`);
-  state.reportEvents = data.events || [];
-  state.reportSummary = data.summary || state.reportSummary;
-  renderReport();
+  try {
+    const data = await requestJson(`/api/v1/attendance/events?${params.toString()}`, {
+      timeoutMs: 20_000,
+    });
+    state.reportEvents = data.events || [];
+    state.reportSummary = data.summary || state.reportSummary;
+    renderReport();
+  } finally {
+    setReportLoading(false);
+  }
+}
+
+function setReportLoading(loading) {
+  const wrap = document.querySelector("#report-table-wrap");
+  const reloadBtn = document.querySelector("#reload-reports");
+  const filterBtn = document.querySelector("#report-filters .filter-submit");
+  if (reloadBtn) reloadBtn.disabled = loading;
+  if (filterBtn) filterBtn.disabled = loading;
+  if (!wrap || !loading) return;
+  wrap.className = "report-table-wrap loading";
+  wrap.innerHTML = `
+    <div class="empty-state">
+      <span class="empty-icon">⏳</span>
+      <p>Cargando entradas y salidas...</p>
+      <small>Consultando marcas de asistencia</small>
+    </div>`;
 }
 
 function handleReportFilterSubmit(event) {
@@ -238,6 +1250,8 @@ function renderReport() {
   document.querySelector("#report-check-outs").textContent = state.reportSummary.check_outs ?? 0;
   document.querySelector("#report-duplicates").textContent = state.reportSummary.duplicates ?? 0;
   document.querySelector("#report-rejected").textContent = state.reportSummary.rejected ?? 0;
+  document.querySelector("#report-late").textContent = state.reportSummary.late ?? 0;
+  document.querySelector("#report-early-exits").textContent = state.reportSummary.early_exits ?? 0;
 
   if (!state.reportEvents.length) {
     wrap.className = "report-table-wrap empty";
@@ -259,6 +1273,7 @@ function renderReport() {
           <th>Empleado</th>
           <th>Codigo</th>
           <th>Tipo</th>
+          <th>Turno</th>
           <th>Dispositivo</th>
           <th>Estado</th>
           <th>Accion</th>
@@ -270,13 +1285,16 @@ function renderReport() {
             const typeLabel = event.event_type === "check_out" ? "Salida" : "Entrada";
             const typeClass = event.event_type === "check_out" ? "check-out" : "check-in";
             const status = getEventStatusLabel(event);
-            const rowClass = !event.accepted || event.duplicate ? "row-bad" : "";
+            const rowClass = !event.accepted || event.duplicate || event.work_status === "early_exit"
+              ? "row-bad"
+              : (event.work_status === "late" ? "row-warn" : "");
             return `
               <tr class="${rowClass}">
                 <td>${formatDate(event.captured_at)}</td>
                 <td>${escapeHtml(event.employee_name || "-")}</td>
                 <td><code>${escapeHtml(event.person_id)}</code></td>
                 <td><span class="event-type ${typeClass}">${typeLabel}</span></td>
+                <td>${escapeHtml(event.shift_code ? `${event.shift_code} ${formatShiftSchedule(event)}` : "Sin turno")}</td>
                 <td>${escapeHtml(event.device_id)}</td>
                 <td>${status}</td>
                 <td class="report-actions">
@@ -295,7 +1313,15 @@ function renderReport() {
 function getEventStatusLabel(event) {
   if (event.duplicate) return '<span class="badge warn">Duplicado</span>';
   if (!event.accepted) return '<span class="badge bad">Rechazado</span>';
+  if (event.work_status === "late") return '<span class="badge warn">Tardanza</span>';
+  if (event.work_status === "early_exit") return '<span class="badge bad">Salida anticipada</span>';
+  if (event.work_status === "on_time") return '<span class="badge ok">Correcto</span>';
   return '<span class="badge ok">Aceptado</span>';
+}
+
+function formatShiftSchedule(event) {
+  if (!event.scheduled_start_time || !event.scheduled_exit_time) return "";
+  return `(${formatTimeShort(event.scheduled_start_time)}-${formatTimeShort(event.scheduled_exit_time)})`;
 }
 
 function handleReportTableAction(event) {
@@ -334,6 +1360,8 @@ async function deleteAttendanceEvent(event) {
     if (event.event_type === "check_out") state.reportSummary.check_outs -= 1;
     if (event.duplicate) state.reportSummary.duplicates -= 1;
     if (!event.accepted) state.reportSummary.rejected -= 1;
+    if (event.work_status === "late") state.reportSummary.late -= 1;
+    if (event.work_status === "early_exit") state.reportSummary.early_exits -= 1;
   }
   renderReport();
   renderEvents();
@@ -443,7 +1471,7 @@ async function refreshIncidents() {
 async function refreshFaces() {
   const data = await requestJson("/api/v1/faces/registered");
   const fingerprint = (data.faces || [])
-    .map((face) => `${face.person_id}:${face.is_active}:${face.embedding_count}:${face.created_at}`)
+    .map((face) => `${face.person_id}:${face.is_active}:${face.embedding_count}:${face.shift_code}:${face.created_at}`)
     .join("|");
   if (fingerprint === state.facesFingerprint) return;
   state.facesFingerprint = fingerprint;
@@ -518,6 +1546,10 @@ function renderRegisteredUsers() {
             <strong>${escapeHtml(face.name)}</strong>
             <div class="user-card-meta">
               <span><b>Codigo:</b> ${escapeHtml(face.employee_code || face.person_id)}</span>
+              <span><b>Area:</b> ${escapeHtml(face.area_name ? `${face.area_name} (${face.area_code})` : "Sin area")}</span>
+              <span><b>Cargo:</b> ${escapeHtml(face.position_name ? `${face.position_name} (${face.position_code})` : "Sin cargo")}</span>
+              <span><b>Turno:</b> ${escapeHtml(face.shift_code ? `${face.shift_code} - ${face.shift_name || "Turno"}` : "Sin turno")}</span>
+              <span><b>Horario:</b> ${escapeHtml(face.schedule_label || "Sin horario")}</span>
               <span><b>ID:</b> ${escapeHtml(face.person_id)}</span>
               <span><b>Correo:</b> ${escapeHtml(face.email || "Sin correo")}</span>
               <span><b>Modelo:</b> ${escapeHtml(face.model)}</span>
@@ -531,6 +1563,7 @@ function renderRegisteredUsers() {
               <button class="primary-btn" type="button" data-user-action="photo" data-person-id="${escapeHtml(face.person_id)}">${photoUrl ? "Cambiar foto" : "Subir foto"}</button>
               <button class="ghost-btn" type="button" data-user-action="edit" data-person-id="${escapeHtml(face.person_id)}">Editar</button>
               <button class="${isInactive ? "ghost-btn" : "danger-btn"}" type="button" data-user-action="${toggleAction}" data-person-id="${escapeHtml(face.person_id)}">${toggleLabel}</button>
+              <button class="danger-btn solid full-row" type="button" data-user-action="delete" data-person-id="${escapeHtml(face.person_id)}">Eliminar definitivamente</button>
             </div>
           </div>
         </article>
@@ -562,6 +1595,10 @@ function handleUserCardAction(event) {
   }
   if (action === "activate") {
     toggleEmployeeStatus(face, true);
+    return;
+  }
+  if (action === "delete") {
+    deleteEmployeePermanently(face);
   }
 }
 
@@ -605,6 +1642,10 @@ function openUserEditDialog(face) {
   userEditForm.name.value = face.name || "";
   userEditForm.employee_code.value = face.employee_code || face.person_id || "";
   userEditForm.email.value = face.email || "";
+  if (userEditShiftSelect) {
+    renderShiftOptions();
+    userEditShiftSelect.value = face.shift_code || "";
+  }
   if (userEditForm.photo) {
     userEditForm.photo.value = "";
   }
@@ -632,6 +1673,7 @@ async function submitUserEdit(event) {
     name: String(form.get("name") || "").trim(),
     employee_code: String(form.get("employee_code") || "").trim(),
     email: String(form.get("email") || "").trim() || null,
+    shift_code: String(form.get("shift_code") || "").trim() || null,
   };
   try {
     const data = await requestJson(`/api/v1/faces/employees/${encodeURIComponent(personId)}`, {
@@ -649,6 +1691,42 @@ async function submitUserEdit(event) {
     showToast(parseApiError(error), 6000, "error");
   } finally {
     setButtonLoading(submitBtn, false, "", defaultLabel);
+  }
+}
+
+async function deleteEmployeePermanently(face) {
+  const confirmed = window.confirm(
+    `¿Eliminar definitivamente a ${face.name} (${face.person_id})?\n\n` +
+      "Se borrara TODO: rostro, embeddings, fotos, marcas de asistencia e incidencias.\n" +
+      "Esta accion no se puede deshacer.",
+  );
+  if (!confirmed) return;
+
+  const typed = window.prompt(
+    `Escribe ELIMINAR para confirmar la eliminacion de ${face.name}:`,
+    "",
+  );
+  if (typed?.trim().toUpperCase() !== "ELIMINAR") {
+    showToast("Eliminacion cancelada.", 4000, "info");
+    return;
+  }
+
+  try {
+    showToast("Eliminando usuario...", 5000, "info");
+    const data = await requestJson(
+      `/api/v1/faces/employees/${encodeURIComponent(face.person_id)}`,
+      { method: "DELETE" },
+    );
+    state.faces = state.faces.filter((item) => item.person_id !== face.person_id);
+    delete state.facePhotoVersions[face.person_id];
+    state.facesFingerprint = "";
+    renderRegisteredUsers();
+    updateFacesCountLabel();
+    await Promise.all([refreshEvents(), refreshIncidents()]);
+    showToast(data.message || "Usuario eliminado definitivamente", 6000, "success");
+  } catch (error) {
+    showToast(parseApiError(error), 7000, "error");
+    await refreshFaces();
   }
 }
 
@@ -742,42 +1820,93 @@ function eventTypeLabel(eventType) {
   return eventType === "check_out" ? "Salida" : "Entrada";
 }
 
+function buildEventListMarkup(events, emptyCopy) {
+  if (!events.length) {
+    return {
+      className: "event-list empty",
+      html: `
+        <div class="empty-state">
+          <span class="empty-icon">${emptyCopy.icon}</span>
+          <p>${emptyCopy.title}</p>
+          <small>${emptyCopy.subtitle}</small>
+        </div>`,
+    };
+  }
+  return {
+    className: "event-list",
+    html: events
+      .slice()
+      .reverse()
+      .slice(0, 12)
+      .map((event) => {
+        const status = event.duplicate ? "Duplicado" : (event.work_status_label || "Aceptado");
+        const badge = event.duplicate || event.work_status === "late"
+          ? "warn"
+          : (event.work_status === "early_exit" ? "bad" : "ok");
+        const typeClass = event.event_type === "check_out" ? "check-out" : "check-in";
+        const source = event.source ? ` · ${escapeHtml(event.source)}` : "";
+        return `
+          <article class="event-item">
+            <div>
+              <strong>${escapeHtml(event.employee_name || event.person_id)}</strong>
+              <small>
+                <span class="event-type ${typeClass}">${eventTypeLabel(event.event_type)}</span>
+                · ${escapeHtml(event.device_id)}${source} · ${formatDate(event.captured_at)}
+              </small>
+            </div>
+            <span class="badge ${badge}">${status}</span>
+          </article>
+        `;
+      })
+      .join(""),
+  };
+}
+
 function renderEvents() {
+  const overview = buildEventListMarkup(state.events, {
+    icon: "📭",
+    title: "Sin eventos todavia",
+    subtitle: "Las marcas apareceran aqui al escanear con reconocimiento facial",
+  });
   const container = document.querySelector("#recent-events");
-  if (!state.events.length) {
-    container.className = "event-list empty";
-    container.innerHTML = `
-      <div class="empty-state">
-        <span class="empty-icon">📭</span>
-        <p>Sin eventos todavia</p>
-        <small>Las marcas apareceran aqui al escanear o registrar manualmente</small>
-      </div>`;
-    return;
+  if (container) {
+    container.className = overview.className;
+    container.innerHTML = overview.html;
   }
 
-  container.className = "event-list";
-  container.innerHTML = state.events
-    .slice()
-    .reverse()
-    .slice(0, 8)
-    .map((event) => {
-      const status = event.duplicate ? "Duplicado" : "Aceptado";
-      const badge = event.duplicate ? "warn" : "ok";
-      const typeClass = event.event_type === "check_out" ? "check-out" : "check-in";
-      return `
-        <article class="event-item">
-          <div>
-            <strong>${escapeHtml(event.employee_name || event.person_id)}</strong>
-            <small>
-              <span class="event-type ${typeClass}">${eventTypeLabel(event.event_type)}</span>
-              · ${escapeHtml(event.device_id)} · ${formatDate(event.captured_at)}
-            </small>
-          </div>
-          <span class="badge ${badge}">${status}</span>
-        </article>
-      `;
-    })
-    .join("");
+  const live = buildEventListMarkup(state.events, {
+    icon: "◎",
+    title: "Sin marcas biometricas todavia",
+    subtitle: "Inicia el escaner facial para registrar la primera entrada",
+  });
+  const liveContainer = document.querySelector("#attendance-live-events");
+  if (liveContainer) {
+    liveContainer.className = live.className;
+    liveContainer.innerHTML = live.html;
+  }
+  renderAttendanceOps();
+}
+
+function renderAttendanceOps() {
+  const todayKey = new Date().toISOString().slice(0, 10);
+  let checkIns = 0;
+  let checkOuts = 0;
+  for (const event of state.events) {
+    const captured = event.captured_at ? new Date(event.captured_at) : null;
+    if (!captured || Number.isNaN(captured.getTime())) continue;
+    if (captured.toISOString().slice(0, 10) !== todayKey) continue;
+    if (event.event_type === "check_in") checkIns += 1;
+    if (event.event_type === "check_out") checkOuts += 1;
+  }
+  const checkinsNode = document.querySelector("#attendance-checkins-today");
+  const checkoutsNode = document.querySelector("#attendance-checkouts-today");
+  const facesNode = document.querySelector("#attendance-faces-active");
+  if (checkinsNode) checkinsNode.textContent = String(checkIns);
+  if (checkoutsNode) checkoutsNode.textContent = String(checkOuts);
+  if (facesNode) {
+    const activeFaces = (state.faces || []).filter((face) => face.is_active !== false).length;
+    facesNode.textContent = String(activeFaces);
+  }
 }
 
 function renderIncidents() {
@@ -868,7 +1997,135 @@ async function submitExitAttempt(event) {
   }
 }
 
-async function submitFaceRegister(event) {
+async function startRegisterFaceScan() {
+  if (state.registerInProgress || state.registerScanStarting || state.registerScanner?.running) {
+    return;
+  }
+  state.registerScanStarting = true;
+
+  setRegisterStatus("loading", "Iniciando escaneo...", "Preparando camara e inteligencia artificial");
+  showToast("Iniciando escaneo facial...", 3000, "info");
+  if (registerStartScanBtn) registerStartScanBtn.disabled = true;
+  registerStatus?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  document.querySelector(".register-camera-wrap")?.scrollIntoView({ behavior: "smooth", block: "center" });
+
+  if (!window.RegisterFaceScanner) {
+    setRegisterStatus("error", "Escanner no listo", "Recarga con Ctrl+Shift+R (recarga forzada).");
+    showToast("El escaner no cargo. Recarga forzada: Ctrl+Shift+R.", 7000, "error");
+    if (registerStartScanBtn) registerStartScanBtn.disabled = false;
+    state.registerScanStarting = false;
+    return;
+  }
+
+  const formEl = faceRegisterForm;
+  if (!formEl) {
+    showToast("Formulario de registro no encontrado.", 5000, "error");
+    if (registerStartScanBtn) registerStartScanBtn.disabled = false;
+    state.registerScanStarting = false;
+    return;
+  }
+
+  const areaCode = String(new FormData(formEl).get("area_code") || "").trim();
+  const positionCode = String(new FormData(formEl).get("position_code") || "").trim();
+  const name = String(new FormData(formEl).get("name") || "").trim();
+  if (!areaCode || !positionCode) {
+    setRegisterStatus("error", "Faltan datos", "Selecciona area y cargo.");
+    showToast("Selecciona area y cargo antes de escanear.", 4000, "error");
+    if (registerStartScanBtn) registerStartScanBtn.disabled = false;
+    state.registerScanStarting = false;
+    return;
+  }
+  if (!registerEmployeeCodeInput?.value?.trim()) {
+    await refreshRegisterEmployeeCode();
+  }
+  state.registerExpectedCode = registerEmployeeCodeInput?.value?.trim() || "";
+  if (!name) {
+    setRegisterStatus("error", "Faltan datos", "Ingresa el nombre del colaborador.");
+    showToast("Ingresa el nombre del colaborador.", 4000, "error");
+    if (registerStartScanBtn) registerStartScanBtn.disabled = false;
+    state.registerScanStarting = false;
+    return;
+  }
+
+  const backendOk = document.querySelector("#api-status-dot")?.classList.contains("ok");
+  if (!backendOk) {
+    await refreshHealth();
+    if (!document.querySelector("#api-status-dot")?.classList.contains("ok")) {
+      setRegisterStatus(
+        "error",
+        "Sin conexion al backend",
+        "Inicia uvicorn en puerto 8000. API debe ser http://127.0.0.1:8000",
+      );
+      showToast("Backend sin conexion. Inicia uvicorn y pulsa Actualizar.", 7000, "error");
+      if (registerStartScanBtn) registerStartScanBtn.disabled = false;
+      state.registerScanStarting = false;
+      return;
+    }
+  }
+
+  state.registerScanComplete = false;
+  stopRegisterScanner();
+  state.registerScanner = new window.RegisterFaceScanner({
+    video: registerCameraPreview,
+    canvas: registerCameraMesh,
+    circleEl: registerFaceCircle,
+    stepLabelEl: registerScanStep,
+    hintEl: registerScanHint,
+    progressEl: registerScanProgress,
+    apiBase: apiBase(),
+    onSpeak: (message) => speak(message),
+    onStatus: (mode, title, detail) => setRegisterStatus(mode, title, detail),
+    onStepCaptured: () => {
+      if (registerFilesSummary) {
+        registerFilesSummary.className = "register-files-summary ok";
+        registerFilesSummary.textContent = "Capturas en progreso. Mantente dentro del circulo.";
+      }
+    },
+    onComplete: async (captures) => {
+      state.registerScanComplete = true;
+      if (faceRegisterForm) {
+        state.registerScanner.applyCapturesToForm(faceRegisterForm);
+        updateRegisterFilesSummary(faceRegisterForm);
+      }
+      registerStartScanBtn?.classList.add("hidden");
+      faceRegisterSubmit?.classList.remove("hidden");
+      stopRegisterScanner();
+      await submitFaceRegisterFromScan(faceRegisterForm);
+    },
+  });
+
+  try {
+    await state.registerScanner.start();
+  } catch (error) {
+    const message = error?.message || "Revisa permisos de camara.";
+    setRegisterStatus("error", "No se pudo escanear", message);
+    showToast(message, 7000, "error");
+    stopRegisterScanner();
+  } finally {
+    if (!state.registerScanner?.running) {
+      if (registerStartScanBtn) registerStartScanBtn.disabled = false;
+      state.registerScanStarting = false;
+    }
+  }
+}
+
+window.__startRegisterFaceScanReady = startRegisterFaceScan;
+window.startRegisterFaceScan = startRegisterFaceScan;
+console.info("[IA Facial] app.js listo — escaneo facial disponible");
+
+function stopRegisterScanner() {
+  state.registerScanner?.stop();
+  state.registerScanner = null;
+  registerFaceCircle?.classList.remove("aligned", "scanning");
+}
+
+async function submitFaceRegisterFromScan(formEl) {
+  if (!formEl) return;
+  const fakeEvent = { preventDefault() {}, currentTarget: formEl };
+  await submitFaceRegister(fakeEvent, { fromScanner: true });
+}
+
+async function submitFaceRegister(event, options = {}) {
   event.preventDefault();
   if (state.registerInProgress) {
     showToast("Registro en curso. Espera a que termine la IA.", 4000, "info");
@@ -876,12 +2133,15 @@ async function submitFaceRegister(event) {
   }
 
   const formEl = event.currentTarget;
+  const fromScanner = options.fromScanner === true;
 
-  const validationError = validateRegisterForm(formEl);
+  const validationError = validateRegisterForm(formEl, { fromScanner });
   if (validationError) {
-    setRegisterStatus("error", "Faltan datos", validationError);
-    showToast(validationError, 5000, "error");
-    registerStatus?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    if (!fromScanner) {
+      setRegisterStatus("error", "Faltan datos", validationError);
+      showToast(validationError, 5000, "error");
+      registerStatus?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
     return;
   }
 
@@ -893,7 +2153,7 @@ async function submitFaceRegister(event) {
   }
 
   const form = new FormData(formEl);
-  const personId = String(form.get("person_id") || "").trim();
+  const expectedCode = state.registerExpectedCode || registerEmployeeCodeInput?.value?.trim() || "";
   const submitBtn = faceRegisterSubmit || formEl.querySelector('[type="submit"]');
   const defaultLabel = submitBtn?.dataset.defaultLabel || submitBtn?.textContent || "Guardar perfil facial";
 
@@ -917,7 +2177,7 @@ async function submitFaceRegister(event) {
     });
     await handleRegisterSuccess(data, formEl);
   } catch (error) {
-    const recovered = await recoverRegisterIfSaved(personId);
+    const recovered = await recoverRegisterIfSaved(expectedCode);
     if (recovered) {
       await handleRegisterSuccess(
         {
@@ -949,7 +2209,7 @@ async function submitFaceRegister(event) {
         await handleRegisterSuccess(data, formEl);
         return;
       } catch (retryError) {
-        const recoveredAfterRetry = await recoverRegisterIfSaved(personId);
+        const recoveredAfterRetry = await recoverRegisterIfSaved(expectedCode);
         if (recoveredAfterRetry) {
           await handleRegisterSuccess(
             {
@@ -1003,8 +2263,17 @@ async function handleRegisterSuccess(data, formEl, recovered = false) {
     5000,
     "success",
   );
+  speak(`Perfil facial de ${data.name} guardado correctamente.`, { priority: true });
+  state.registerScanComplete = false;
+  state.registerExpectedCode = "";
+  registerStartScanBtn?.classList.remove("hidden");
+  faceRegisterSubmit?.classList.add("hidden");
+  formEl.reset();
+  resetRegisterHierarchyFields();
   updateRegisterFilesSummary(formEl);
   await refreshFaces();
+  await refreshScheduleOverview(true);
+  await refreshRegisterEmployeeCode();
 }
 
 async function recoverRegisterIfSaved(personId) {
@@ -1031,10 +2300,99 @@ function isTransientNetworkError(error) {
   );
 }
 
-function validateRegisterForm(formEl) {
-  const personId = String(new FormData(formEl).get("person_id") || "").trim();
+async function initEmployeeCatalog() {
+  if (state.employeeCatalog?.areas?.length) {
+    renderRegisterAreaOptions();
+    return state.employeeCatalog;
+  }
+  const data = await requestJson("/api/v1/employees/catalog");
+  state.employeeCatalog = data;
+  renderRegisterAreaOptions();
+  return data;
+}
+
+function renderRegisterAreaOptions() {
+  if (!registerAreaSelect || !state.employeeCatalog?.areas) return;
+  const current = registerAreaSelect.value;
+  registerAreaSelect.innerHTML = [
+    '<option value="">Selecciona un area...</option>',
+    ...state.employeeCatalog.areas.map(
+      (area) => `<option value="${escapeHtml(area.code)}">${escapeHtml(area.name)} (${escapeHtml(area.code)})</option>`,
+    ),
+  ].join("");
+  if (current) {
+    registerAreaSelect.value = current;
+    handleRegisterAreaChange();
+  }
+}
+
+function handleRegisterAreaChange() {
+  if (!registerPositionSelect || !state.employeeCatalog?.positions) return;
+  const areaCode = registerAreaSelect?.value || "";
+  const positions = state.employeeCatalog.positions.filter((item) => item.area_code === areaCode);
+  if (!areaCode || !positions.length) {
+    registerPositionSelect.innerHTML = '<option value="">Primero elige un area...</option>';
+    registerPositionSelect.disabled = true;
+    registerPositionSelect.value = "";
+    clearRegisterEmployeeCode();
+    return;
+  }
+  registerPositionSelect.disabled = false;
+  registerPositionSelect.innerHTML = [
+    '<option value="">Selecciona un cargo...</option>',
+    ...positions.map(
+      (position) =>
+        `<option value="${escapeHtml(position.code)}">${escapeHtml(position.name)} (${escapeHtml(position.code)})</option>`,
+    ),
+  ].join("");
+  registerPositionSelect.value = "";
+  clearRegisterEmployeeCode();
+}
+
+async function refreshRegisterEmployeeCode() {
+  const areaCode = registerAreaSelect?.value || "";
+  const positionCode = registerPositionSelect?.value || "";
+  if (!areaCode || !positionCode) {
+    clearRegisterEmployeeCode();
+    return null;
+  }
+  try {
+    const data = await requestJson(
+      `/api/v1/employees/next-code?area_code=${encodeURIComponent(areaCode)}&position_code=${encodeURIComponent(positionCode)}`,
+    );
+    if (registerEmployeeCodeInput) {
+      registerEmployeeCodeInput.value = data.employee_code;
+      registerEmployeeCodeInput.classList.add("ready");
+    }
+    state.registerExpectedCode = data.employee_code;
+    return data;
+  } catch (error) {
+    clearRegisterEmployeeCode();
+    showToast(parseApiError(error), 5000, "error");
+    return null;
+  }
+}
+
+function clearRegisterEmployeeCode() {
+  if (registerEmployeeCodeInput) {
+    registerEmployeeCodeInput.value = "";
+    registerEmployeeCodeInput.classList.remove("ready");
+  }
+  state.registerExpectedCode = "";
+}
+
+function resetRegisterHierarchyFields() {
+  if (registerAreaSelect) registerAreaSelect.value = "";
+  if (registerShiftSelect) registerShiftSelect.value = "";
+  handleRegisterAreaChange();
+  clearRegisterEmployeeCode();
+}
+
+function validateRegisterForm(formEl, options = {}) {
+  const areaCode = String(new FormData(formEl).get("area_code") || "").trim();
+  const positionCode = String(new FormData(formEl).get("position_code") || "").trim();
   const name = String(new FormData(formEl).get("name") || "").trim();
-  if (!personId) return "Ingresa el codigo del colaborador.";
+  if (!areaCode || !positionCode) return "Selecciona area y cargo.";
   if (!name) return "Ingresa el nombre del colaborador.";
 
   const requiredFiles = [
@@ -1047,13 +2405,19 @@ function validateRegisterForm(formEl) {
     return !input?.files?.length;
   });
   if (missing.length) {
-    return `Faltan fotos obligatorias: ${missing.map((item) => item.label).join(", ")}.`;
+    if (options.fromScanner) {
+      return "El escaneo no completo las 3 poses. Pulsa Iniciar escaneo facial otra vez.";
+    }
+    return `Faltan capturas obligatorias: ${missing.map((item) => item.label).join(", ")}. Usa Iniciar escaneo facial.`;
   }
   return null;
 }
 
 function handleRegisterFormChange(event) {
   const target = event.target;
+  if (target instanceof HTMLSelectElement) {
+    return;
+  }
   if (!(target instanceof HTMLInputElement) || target.type !== "file") return;
 
   const slot = target.closest(".pose-slot");
@@ -1079,33 +2443,33 @@ function handleRegisterFormChange(event) {
 function updateRegisterFilesSummary(formEl) {
   if (!registerFilesSummary) return;
   const required = ["front", "left", "right"];
-  const optional = ["with_glasses", "without_glasses"];
   const labels = {
     front: "frontal",
     left: "izquierda",
     right: "derecha",
-    with_glasses: "con lentes",
-    without_glasses: "sin lentes",
   };
 
-  const picked = [...required, ...optional].filter((field) => {
+  const picked = required.filter((field) => {
     const input = formEl.querySelector(`input[name="${field}"]`);
     return input?.files?.length;
   });
 
-  const missingRequired = required.filter((field) => {
-    const input = formEl.querySelector(`input[name="${field}"]`);
-    return !input?.files?.length;
-  });
+  if (!picked.length) {
+    registerFilesSummary.className = "register-files-summary";
+    registerFilesSummary.textContent =
+      "Pulsa Iniciar escaneo facial. El sistema capturara frontal, izquierda y derecha automaticamente.";
+    return;
+  }
 
-  if (missingRequired.length) {
+  if (picked.length < required.length) {
+    const missing = required.filter((field) => !picked.includes(field));
     registerFilesSummary.className = "register-files-summary warn";
-    registerFilesSummary.textContent = `Faltan obligatorias: ${missingRequired.map((f) => labels[f]).join(", ")}.`;
+    registerFilesSummary.textContent = `Faltan capturas: ${missing.map((f) => labels[f]).join(", ")}.`;
     return;
   }
 
   registerFilesSummary.className = "register-files-summary ok";
-  registerFilesSummary.textContent = `Listo: ${picked.map((f) => labels[f]).join(", ")} (${picked.length} foto(s)).`;
+  registerFilesSummary.textContent = `Capturas listas: ${picked.map((f) => labels[f]).join(", ")}.`;
 }
 
 function setRegisterStatus(mode, title, detail) {
@@ -1168,6 +2532,7 @@ function stopRegisterProgressFeedback() {
 
 function setRegisterFormDisabled(formEl, disabled) {
   formEl.querySelectorAll("input, button, select, textarea").forEach((el) => {
+    if (el.id === "register-employee-code") return;
     el.disabled = disabled;
   });
 }
@@ -1267,10 +2632,25 @@ function hideLivenessSteps() {
 
 const LIVENESS_STEP_TIMING = {
   front: { prepMs: 1200, countdownSec: 2, actionCue: null, burst: false },
-  movement: { prepMs: 1500, countdownSec: 2, actionCue: "Gira la cabeza ahora", burst: false },
-  blink: { prepMs: 1400, countdownSec: 2, actionCue: "Parpadea ahora", burst: true },
-  smile: { prepMs: 1400, countdownSec: 2, actionCue: "Sonrie ahora", burst: true },
+  movement: { prepMs: 1500, countdownSec: 2, actionCue: "turnNow", burst: false },
+  blink: { prepMs: 1400, countdownSec: 2, actionCue: "blinkNow", burst: true },
+  smile: { prepMs: 1400, countdownSec: 2, actionCue: "smileNow", burst: true },
 };
+const SPEECH_PHRASES = {
+  front: "Mira de frente a la camara, con buena luz.",
+  movement: "Gira un poco la cabeza hacia un lado.",
+  blink: "Prepárate. En un momento debes parpadear.",
+  smile: "Prepárate. En un momento debes sonreir.",
+  turnNow: "Gira la cabeza ahora.",
+  blinkNow: "Parpadea ahora.",
+  smileNow: "Sonrie ahora.",
+  validate: "Validando identidad. Espera un momento por favor.",
+  welcome: "Camara lista. Elige entrada o salida y escanea cuando estes preparado.",
+  noMatch: "No te reconoci. Acercate un poco, mira de frente y vuelve a intentar.",
+  scanError: "Hubo un error al escanear. Revisa que el servidor este activo.",
+  saveError: "Te reconoci, pero no pude guardar la asistencia. Intenta otra vez.",
+};
+const COUNTDOWN_WORDS = ["", "uno", "dos", "tres", "cuatro", "cinco"];
 const LIVENESS_ACTION_HOLD_MS = 400;
 const LIVENESS_BURST_INTERVAL_MS = 180;
 const CAMERA_FRAME_QUALITY = 0.9;
@@ -1280,23 +2660,31 @@ function setLivenessOverlayText(text) {
   setCameraStatus(text);
 }
 
-async function countdownWithActionCue(seconds, actionCue) {
+async function countdownWithActionCue(seconds, actionCueKey) {
   for (let remaining = seconds; remaining >= 1; remaining -= 1) {
-    const isActionSecond = actionCue && remaining === 1;
-    const label = isActionSecond ? actionCue : `Captura en ${remaining}...`;
+    const isActionSecond = actionCueKey && remaining === 1;
+    const spokenAction = actionCueKey ? (SPEECH_PHRASES[actionCueKey] || actionCueKey) : null;
+    const label = isActionSecond ? spokenAction : `Captura en ${remaining}...`;
     setLivenessOverlayText(label);
     if (isActionSecond) {
-      speak(actionCue);
+      speak(spokenAction, { priority: true });
+    } else if (remaining <= 3) {
+      speak(COUNTDOWN_WORDS[remaining] || String(remaining), { rate: 0.95 });
     }
     await sleep(1000);
   }
 }
 
+function speechForLivenessStep(stepType) {
+  return SPEECH_PHRASES[stepType] || null;
+}
+
 async function captureLivenessStep(step) {
   const timing = LIVENESS_STEP_TIMING[step.type] || LIVENESS_STEP_TIMING.front;
+  const spokenIntro = speechForLivenessStep(step.type) || step.prompt;
   setScanResult("scanning", step.prompt, "Preparate, la captura es automatica...");
   setLivenessOverlayText(step.prompt);
-  speak(step.prompt);
+  speak(spokenIntro);
   await sleep(timing.prepMs);
 
   await countdownWithActionCue(timing.countdownSec, timing.actionCue);
@@ -1343,7 +2731,7 @@ async function runLivenessChallenge() {
   setLivenessStepActive((challenge.steps?.length || 3) + 1);
   setScanResult("scanning", "Validando rostro real...", "Anti-spoofing avanzado en curso");
   if (scanOverlay) scanOverlay.textContent = "Validando rostro real...";
-  speak("Validando rostro real.");
+  speak(SPEECH_PHRASES.validate);
   return requestForm("/api/v1/faces/liveness/verify", form, {
     silent: true,
     timeoutMs: 300_000,
@@ -1372,10 +2760,16 @@ async function startCamera() {
     scanCheckOutBtn.disabled = false;
     await refreshFaces();
     updateScanModeUi();
+    const meshReady = await startScanFaceMesh();
     setScanResult("idle", "Camara lista", "Elige Entrada o Salida y pulsa el boton correspondiente.");
-    setCameraStatus("Camara activa. Selecciona el tipo de marca antes de escanear.");
+    setCameraStatus(
+      meshReady
+        ? "Camara activa con malla MediaPipe (puntos azules). Selecciona Entrada o Salida."
+        : "Camara activa. MediaPipe no cargo; el escaneo sigue funcionando sin puntos azules.",
+    );
     await refreshAttendancePolicy();
-    speak(`${getWelcomeSpeech()} Elige entrada o salida y escanea para marcar asistencia.`);
+    warmUpSpeech();
+    speak(`${getWelcomeSpeech()} ${SPEECH_PHRASES.welcome}`);
     if (autoScanInput?.checked) {
       startAutoScan();
     }
@@ -1385,8 +2779,21 @@ async function startCamera() {
   }
 }
 
+async function startScanFaceMesh() {
+  if (!window.FaceMeshOverlay || !scanCameraMesh || !cameraPreview) return false;
+  if (!state.camera.meshOverlay) {
+    state.camera.meshOverlay = new window.FaceMeshOverlay(cameraPreview, scanCameraMesh);
+  }
+  return state.camera.meshOverlay.start();
+}
+
+function stopScanFaceMesh() {
+  state.camera.meshOverlay?.stop();
+}
+
 function stopCamera() {
   stopAutoScan();
+  stopScanFaceMesh();
   if (!state.camera.stream) return;
   state.camera.stream.getTracks().forEach((track) => track.stop());
   state.camera.stream = null;
@@ -1477,7 +2884,7 @@ async function scanFromCamera(forcedEventType = null) {
         setScanResult("bad", "Rostro no validado", detail);
         setCameraStatus(liveness.message || "Liveness fallido");
         showToast(liveness.message || "No se valido rostro vivo", 6000, "error");
-        speak(liveness.message || "Repite el desafio.");
+        speak(speechForLivenessFailure(liveness), { priority: true });
         return;
       }
       if (liveness.candidate?.person_id) {
@@ -1514,6 +2921,7 @@ async function scanFromCamera(forcedEventType = null) {
       setScanResult("ok", `Verificado: ${personName}`, `Coincidencia ${conf}%`);
       setCameraStatus(`Verificado: ${personName} (${conf}%)`);
       showToast(`Verificado: ${personName}`, 4000);
+      speak(`Identidad confirmada. Hola ${personName}.`, { priority: true });
       const eventType = forcedEventType || state.camera.selectedEventType || "check_in";
       await registerAttendanceAfterScan(data, personName, eventType);
     } else {
@@ -1533,12 +2941,13 @@ async function scanFromCamera(forcedEventType = null) {
         setCameraStatus("Sin coincidencia - intenta de nuevo");
         showToast("No te reconoci. Registra otra foto o acercate mas.", 4000);
       }
-      speak("No hay coincidencia. Intenta de nuevo.");
+      speak(SPEECH_PHRASES.noMatch, { priority: true });
     }
   } catch (error) {
     setScanResult("bad", "Error al escanear", "Revisa que el backend este activo");
     setCameraStatus("Error al escanear");
     showToast("Error al escanear. Mira consola o backend.", 5000);
+    speak(SPEECH_PHRASES.scanError, { priority: true });
   } finally {
     state.camera.scanning = false;
     pauseBackgroundRefresh(false);
@@ -1565,7 +2974,7 @@ async function registerAttendanceAfterScan(identifyData, personName, eventType) 
   const payload = {
     person_id: personId,
     employee_name: identifyData.candidate?.name || personId,
-    device_id: "dashboard-camera-001",
+    device_id: state.admin?.settings?.camera_device_id || "dashboard-camera-001",
     event_type: eventType,
     confidence: Number(identifyData.candidate?.confidence || 0.98),
     captured_at: new Date().toISOString(),
@@ -1588,7 +2997,7 @@ async function registerAttendanceAfterScan(identifyData, personName, eventType) 
       setScanResult("warn", `${personName}: ya registrado`, duplicateMessage);
       setCameraStatus(duplicateMessage);
       showToast(duplicateMessage, 6000, "info");
-      speak(duplicateMessage);
+      speak(speechForAttendanceMessage(duplicateMessage, personName, eventType), { priority: true });
       if (eventType === "check_in") {
         setScanEventType("check_out");
       }
@@ -1606,9 +3015,7 @@ async function registerAttendanceAfterScan(identifyData, personName, eventType) 
     setScanResult("ok", `Asistencia guardada (${eventLabel})`, successMessage);
     setCameraStatus(successMessage);
     showToast(successMessage, 5000);
-    speak(
-      `Escaneo completado. Verificado ${personName}. Marcado de asistencia de ${eventLabel}.`,
-    );
+    speak(speechForAttendanceSuccess(personName, eventType), { priority: true });
     updateScanModeUi();
   } catch (error) {
     const detail = parseApiError(error);
@@ -1619,7 +3026,7 @@ async function registerAttendanceAfterScan(identifyData, personName, eventType) 
     );
     setCameraStatus("Verificado. Error al guardar asistencia.");
     showToast(`No se guardo asistencia: ${detail}`, 7000, "error");
-    speak("Verificado, pero no se pudo guardar asistencia.");
+    speak(SPEECH_PHRASES.saveError, { priority: true });
   }
 }
 
@@ -1791,15 +3198,162 @@ function getWelcomeSpeech() {
   return "Buenas noches.";
 }
 
-function speak(message) {
-  if (!state.camera.speakingEnabled || !("speechSynthesis" in window)) return;
-  if (!message) return;
+function initSpeechSynthesis() {
+  if (!("speechSynthesis" in window)) return;
+  const loadVoices = () => {
+    state.camera.preferredVoice = pickBestSpanishVoice();
+    state.camera.speechReady = true;
+  };
+  loadVoices();
+  window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+}
 
+function warmUpSpeech() {
+  if (!("speechSynthesis" in window)) return;
+  window.speechSynthesis.getVoices();
+  if (!state.camera.preferredVoice) {
+    state.camera.preferredVoice = pickBestSpanishVoice();
+  }
+}
+
+function pickBestSpanishVoice() {
+  const voices = window.speechSynthesis.getVoices();
+  if (!voices.length) return null;
+
+  const preferredNames = [
+    "helena",
+    "sabina",
+    "paulina",
+    "monica",
+    "laura",
+    "elvira",
+    "google español",
+    "google spanish",
+    "microsoft sabina",
+    "microsoft helena",
+  ];
+
+  const scoreVoice = (voice) => {
+    const name = voice.name.toLowerCase();
+    const lang = (voice.lang || "").toLowerCase();
+    let score = 0;
+    if (lang.startsWith("es")) score += 40;
+    if (lang.includes("mx") || lang.includes("es-es") || lang.includes("pe")) score += 12;
+    if (voice.localService) score += 18;
+    if (preferredNames.some((hint) => name.includes(hint))) score += 35;
+    if (name.includes("neural") || name.includes("natural")) score += 20;
+    if (name.includes("online")) score -= 8;
+    return score;
+  };
+
+  const spanishVoices = voices
+    .filter((voice) => (voice.lang || "").toLowerCase().startsWith("es"))
+    .sort((a, b) => scoreVoice(b) - scoreVoice(a));
+
+  return spanishVoices[0] || voices.find((voice) => voice.lang?.startsWith("es")) || null;
+}
+
+function humanizeSpeechText(message) {
+  return String(message || "")
+    .replace(/\s+/g, " ")
+    .replace(/%/g, " por ciento")
+    .replace(/EMP-/gi, "empleado ")
+    .replace(/check_in|check-in/gi, "entrada")
+    .replace(/check_out|check-out/gi, "salida")
+    .replace(/anti-spoof(?:ing)?/gi, "validacion de rostro real")
+    .replace(/liveness/gi, "prueba de vida")
+    .replace(/backend/gi, "servidor")
+    .replace(/:\s*/g, ". ")
+    .trim();
+}
+
+function speechForLivenessFailure(liveness) {
+  const checks = liveness?.checks || {};
+  if (checks.blink === false) {
+    return "No detecté el parpadeo. Cierra los ojos un instante y vuelve a intentar.";
+  }
+  if (checks.smile === false) {
+    return "No detecté la sonrisa. Sonríe un poco o abre la boca y vuelve a intentar.";
+  }
+  if (checks.movement === false) {
+    return "No detecté el giro de cabeza. Gira un poco hacia un lado y vuelve a intentar.";
+  }
+  if (checks.face_detected === false) {
+    return "No vi tu rostro con claridad. Acércate, mejora la luz y vuelve a intentar.";
+  }
+  const raw = liveness?.message || "No se validó el rostro. Repite el escaneo.";
+  return humanizeSpeechText(raw);
+}
+
+function speechForAttendanceSuccess(personName, eventType) {
+  const name = personName || "colaborador";
+  if (eventType === "check_out") {
+    return `Listo ${name}. Tu salida quedó registrada correctamente.`;
+  }
+  return `Perfecto ${name}. Tu entrada quedó registrada correctamente.`;
+}
+
+function speechForAttendanceMessage(message, personName, eventType) {
+  const text = humanizeSpeechText(message);
+  if (text) return text;
+  if (eventType === "check_out") {
+    return `${personName}, ya registraste tu salida hoy.`;
+  }
+  return `${personName}, ya registraste tu entrada hoy. Si ya saliste, cambia a modo salida.`;
+}
+
+function stopSpeech() {
+  if (!("speechSynthesis" in window)) return;
+  state.camera.speechQueue = [];
+  state.camera.speechBusy = false;
   window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(message);
-  utterance.lang = "es-PE";
-  utterance.rate = 1;
-  utterance.pitch = 1;
+}
+
+function speak(message, options = {}) {
+  const { priority = false, rate = 0.92, pitch = 1, volume = 1 } = options;
+  if (!state.camera.speakingEnabled || !("speechSynthesis" in window)) return Promise.resolve();
+  const text = humanizeSpeechText(message);
+  if (!text) return Promise.resolve();
+
+  if (priority) {
+    stopSpeech();
+  }
+
+  return new Promise((resolve) => {
+    state.camera.speechQueue.push({ text, rate, pitch, volume, resolve });
+    drainSpeechQueue();
+  });
+}
+
+function drainSpeechQueue() {
+  if (state.camera.speechBusy || !state.camera.speechQueue.length) return;
+  if (!state.camera.speechReady) {
+    warmUpSpeech();
+  }
+
+  const item = state.camera.speechQueue.shift();
+  state.camera.speechBusy = true;
+
+  const utterance = new SpeechSynthesisUtterance(item.text);
+  utterance.lang = state.camera.preferredVoice?.lang || "es-MX";
+  utterance.rate = item.rate;
+  utterance.pitch = item.pitch;
+  utterance.volume = item.volume;
+  if (state.camera.preferredVoice) {
+    utterance.voice = state.camera.preferredVoice;
+  }
+
+  utterance.onend = () => {
+    state.camera.speechBusy = false;
+    item.resolve();
+    drainSpeechQueue();
+  };
+  utterance.onerror = () => {
+    state.camera.speechBusy = false;
+    item.resolve();
+    drainSpeechQueue();
+  };
+
   window.speechSynthesis.speak(utterance);
 }
 
@@ -1816,4 +3370,3 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
-
