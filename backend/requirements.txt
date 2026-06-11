@@ -8,8 +8,8 @@ numpy==2.0.2
 deepface==0.0.93
 tf-keras==2.18.0
 mediapipe==0.10.32
-onnxruntime==1.20.1
-# insightface opcional (requiere MSVC en Windows): pip install insightface
+# Opcional para insightface; deepface (default) no lo requiere en runtime.
+onnxruntime==1.24.4
 sqlalchemy==2.0.36
 psycopg[binary]==3.2.3
 alembic==1.14.0
