@@ -26,9 +26,14 @@ def ai_health_check() -> dict[str, str | bool]:
         "insightface": False,
     }
     try:
-        import mediapipe  # noqa: F401
+        import mediapipe as mp
 
-        checks["mediapipe"] = True
+        if hasattr(mp, "solutions") and hasattr(mp.solutions, "face_mesh"):
+            checks["mediapipe"] = True
+        else:
+            checks["mediapipe_message"] = (
+                "mediapipe sin API solutions; fija mediapipe==0.10.21 en requirements.txt"
+            )
     except ImportError:
         checks["mediapipe_message"] = "mediapipe no instalado (pip install mediapipe)"
 

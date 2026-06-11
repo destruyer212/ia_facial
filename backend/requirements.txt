@@ -7,7 +7,8 @@ opencv-python-headless==4.10.0.84
 numpy==1.26.4
 deepface==0.0.93
 tf-keras==2.18.0
-mediapipe==0.10.32
+# 0.10.30+ elimino mediapipe.solutions; Face Mesh sigue en la API legacy.
+mediapipe==0.10.21
 # insightface/onnxruntime: pip install insightface onnxruntime (opcional, no usado por defecto)
 sqlalchemy==2.0.36
 psycopg[binary]==3.2.3

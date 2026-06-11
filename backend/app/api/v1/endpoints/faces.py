@@ -38,8 +38,15 @@ from app.utils.image_files import remove_file, save_upload_to_temp_file
 router = APIRouter()
 opencv_service = OpenCVService()
 face_ai_service = FaceAIService()
-liveness_service = LivenessService(face_ai=face_ai_service, opencv=opencv_service)
+_liveness_service: LivenessService | None = None
 embedding_store = get_embedding_store()
+
+
+def get_liveness_service() -> LivenessService:
+    global _liveness_service
+    if _liveness_service is None:
+        _liveness_service = LivenessService(face_ai=face_ai_service, opencv=opencv_service)
+    return _liveness_service
 employee_catalog_service = get_employee_catalog_service()
 attendance_event_store = get_attendance_event_store()
 incident_store = get_incident_store()
@@ -226,7 +233,7 @@ async def register_face_profile(
 
 @router.get("/liveness/challenge", response_model=LivenessChallengeResponse)
 def get_liveness_challenge() -> LivenessChallengeResponse:
-    return liveness_service.create_challenge()
+    return get_liveness_service().create_challenge()
 
 
 @router.post("/liveness/verify", response_model=LivenessVerifyResponse)
@@ -250,7 +257,7 @@ async def verify_liveness(
     try:
         for step_type, upload in uploads.items():
             temp_paths[step_type] = await _persist_upload(upload)
-        return liveness_service.verify(
+        return get_liveness_service().verify(
             temp_paths,
             challenge_id=challenge_id.strip() if challenge_id else None,
             person_id=person_id.strip() if person_id else None,
