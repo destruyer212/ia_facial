@@ -3,17 +3,15 @@ uvicorn[standard]==0.34.0
 python-multipart==0.0.20
 pydantic-settings==2.7.1
 python-dotenv==1.0.1
-opencv-python==4.10.0.84
-numpy==2.0.2
+opencv-python-headless==4.10.0.84
+numpy==1.26.4
 deepface==0.0.93
 tf-keras==2.18.0
 mediapipe==0.10.32
-# Opcional para insightface; deepface (default) no lo requiere en runtime.
-onnxruntime==1.24.4
+# insightface/onnxruntime: pip install insightface onnxruntime (opcional, no usado por defecto)
 sqlalchemy==2.0.36
 psycopg[binary]==3.2.3
 alembic==1.14.0
 pytest==8.3.4
 httpx==0.28.1
 boto3==1.35.99
-
