@@ -4,16 +4,18 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 class FaceApiClient {
-  FaceApiClient({required this.baseUrl});
+  FaceApiClient({required this.baseUrl, Duration? timeout})
+      : timeout = timeout ?? const Duration(seconds: 90);
 
   final String baseUrl;
+  final Duration timeout;
 
   Future<Map<String, dynamic>> identifyFace(File imageFile) async {
     final uri = Uri.parse('$baseUrl/api/v1/faces/identify');
     final request = http.MultipartRequest('POST', uri)
       ..files.add(await http.MultipartFile.fromPath('file', imageFile.path));
 
-    final streamed = await request.send();
+    final streamed = await request.send().timeout(timeout);
     final response = await http.Response.fromStream(streamed);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -37,7 +39,7 @@ class FaceApiClient {
       ..fields['name'] = name
       ..files.add(await http.MultipartFile.fromPath('file', imageFile.path));
 
-    final streamed = await request.send();
+    final streamed = await request.send().timeout(timeout);
     final response = await http.Response.fromStream(streamed);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -52,14 +54,16 @@ class FaceApiClient {
 
   Future<Map<String, dynamic>> validateRegistrationToken(String token) async {
     final uri = Uri.parse('$baseUrl/api/v1/registration-tokens/validate');
-    final response = await http.post(
-      uri,
-      headers: const {
-        'Content-Type': 'application/json',
-        'X-Client-Source': 'mobile',
-      },
-      body: jsonEncode({'token': token.trim()}),
-    );
+    final response = await http
+        .post(
+          uri,
+          headers: const {
+            'Content-Type': 'application/json',
+            'X-Client-Source': 'mobile',
+          },
+          body: jsonEncode({'token': token.trim()}),
+        )
+        .timeout(timeout);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw FaceApiException(
@@ -84,7 +88,7 @@ class FaceApiClient {
       ..files.add(await http.MultipartFile.fromPath('left', leftFile.path))
       ..files.add(await http.MultipartFile.fromPath('right', rightFile.path));
 
-    final streamed = await request.send();
+    final streamed = await request.send().timeout(timeout);
     final response = await http.Response.fromStream(streamed);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -99,11 +103,13 @@ class FaceApiClient {
 
   Future<Map<String, dynamic>> completeRegistrationToken(String token) async {
     final uri = Uri.parse('$baseUrl/api/v1/registration-tokens/complete');
-    final response = await http.post(
-      uri,
-      headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({'token': token.trim()}),
-    );
+    final response = await http
+        .post(
+          uri,
+          headers: const {'Content-Type': 'application/json'},
+          body: jsonEncode({'token': token.trim()}),
+        )
+        .timeout(timeout);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw FaceApiException(
@@ -140,7 +146,7 @@ class FaceApiClient {
       request.fields['reason'] = reason.trim();
     }
 
-    final streamed = await request.send();
+    final streamed = await request.send().timeout(timeout);
     final response = await http.Response.fromStream(streamed);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {

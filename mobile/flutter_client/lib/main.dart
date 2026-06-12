@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'api/face_api_client.dart';
+import 'config/api_config.dart';
 import 'screens/confirmation_screen.dart';
 import 'screens/face_capture_screen.dart';
 import 'screens/token_screen.dart';
@@ -37,7 +38,7 @@ class TokenRegistrationFlow extends StatefulWidget {
 enum _RegistrationStep { token, workerData, capture, confirmation }
 
 class _TokenRegistrationFlowState extends State<TokenRegistrationFlow> {
-  static const _defaultBaseUrl = 'http://10.0.2.2:8000';
+  static const _defaultBaseUrl = kProductionApiBaseUrl;
 
   late FaceApiClient _apiClient = FaceApiClient(baseUrl: _defaultBaseUrl);
   String _baseUrl = _defaultBaseUrl;

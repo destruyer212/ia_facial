@@ -49,7 +49,20 @@ const state = {
   refreshTimer: null,
 };
 
+const DEFAULT_API_BASE = "https://ia-facial.onrender.com";
 const apiBaseInput = document.querySelector("#api-base");
+
+function initApiBaseDefault() {
+  if (!apiBaseInput) return;
+  const current = apiBaseInput.value.trim();
+  if (
+    !current ||
+    current === "http://127.0.0.1:8000" ||
+    current === "http://localhost:8000"
+  ) {
+    apiBaseInput.value = DEFAULT_API_BASE;
+  }
+}
 const toast = document.querySelector("#toast");
 const registerResult = document.querySelector("#face-register-result");
 const faceRegisterForm = document.querySelector("#face-register-form");
@@ -284,6 +297,7 @@ document.querySelector("#reload-schedules")?.addEventListener("click", () => {
   refreshScheduleOverview(true).catch(() => showToast("No se pudo recargar horarios", 5000, "error"));
 });
 
+initApiBaseDefault();
 refreshAll();
 refreshAdminOverview().catch(() => {});
 refreshScheduleOverview().catch(() => {});

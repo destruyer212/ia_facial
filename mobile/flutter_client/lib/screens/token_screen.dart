@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../api/face_api_client.dart';
+import '../config/api_config.dart';
 
 class TokenScreen extends StatefulWidget {
   const TokenScreen({
@@ -72,7 +75,17 @@ class _TokenScreenState extends State<TokenScreen> {
       widget.onValidated(token, worker);
     } on FaceApiException catch (error) {
       setState(() => _error = error.body);
+    } on SocketException {
+      setState(() => _error =
+          'Sin conexion al servidor. Usa $kProductionApiBaseUrl (no 10.0.2.2 en celular real).');
     } catch (error) {
+      final message = error.toString();
+      if (message.contains('Connection timed out') ||
+          message.contains('10.0.2.2')) {
+        setState(() => _error =
+            'No llega al servidor. En celular usa: $kProductionApiBaseUrl');
+        return;
+      }
       setState(() => _error = 'No se pudo validar el token: $error');
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -100,7 +113,7 @@ class _TokenScreenState extends State<TokenScreen> {
               controller: _baseUrlController,
               decoration: const InputDecoration(
                 labelText: 'URL del servidor',
-                hintText: 'http://10.0.2.2:8000',
+                hintText: kProductionApiBaseUrl,
                 border: OutlineInputBorder(),
               ),
             ),
