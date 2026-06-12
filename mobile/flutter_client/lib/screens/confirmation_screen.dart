@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../utils/responsive.dart';
 import '../widgets/app_screen_shell.dart';
 
 class ConfirmationScreen extends StatelessWidget {
@@ -21,6 +22,7 @@ class ConfirmationScreen extends StatelessWidget {
     final code = worker?['employee_code'] as String? ?? '';
 
     return AppScreenShell(
+      scrollable: true,
       padding: const EdgeInsets.all(24),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -57,11 +59,11 @@ class ConfirmationScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 20),
-                const Text(
+                Text(
                   'Registro facial completado',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: 24,
+                    fontSize: AppResponsive.isCompact(context) ? 21 : 24,
                     fontWeight: FontWeight.w800,
                     color: AppColors.textPrimary,
                   ),
@@ -70,6 +72,8 @@ class ConfirmationScreen extends StatelessWidget {
                 Text(
                   '$name${code.isNotEmpty ? ' ($code)' : ''}',
                   textAlign: TextAlign.center,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 17,
                     color: AppColors.accent,

@@ -55,10 +55,13 @@ class WorkerDataScreen extends StatelessWidget {
               ],
             ),
           ),
-          FilledButton.icon(
-            onPressed: onContinue,
-            icon: const Icon(Icons.face_retouching_natural),
-            label: const Text('Iniciar escaneo facial'),
+          SafeArea(
+            top: false,
+            child: FilledButton.icon(
+              onPressed: onContinue,
+              icon: const Icon(Icons.face_retouching_natural),
+              label: const Text('Iniciar escaneo facial'),
+            ),
           ),
         ],
       ),
@@ -97,6 +100,7 @@ class _InfoTile extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             value,
+            softWrap: true,
             style: const TextStyle(
               color: AppColors.textPrimary,
               fontSize: 17,

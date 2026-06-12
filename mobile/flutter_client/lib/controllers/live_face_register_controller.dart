@@ -193,8 +193,8 @@ class LiveFaceRegisterController extends ChangeNotifier {
     final centerY = box.top + box.height / 2;
     final points = <Offset>[];
 
-    final contours = face.contours?.values ?? const <FaceContour>[];
-    for (final contour in contours) {
+    for (final contour in face.contours?.values ?? const Iterable<FaceContour?>.empty()) {
+      if (contour == null) continue;
       for (final point in contour.points) {
         points.add(Offset(point.x.toDouble(), point.y.toDouble()));
       }

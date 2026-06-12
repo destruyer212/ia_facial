@@ -97,6 +97,7 @@ class _TokenScreenState extends State<TokenScreen> {
   @override
   Widget build(BuildContext context) {
     return AppScreenShell(
+      scrollable: true,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

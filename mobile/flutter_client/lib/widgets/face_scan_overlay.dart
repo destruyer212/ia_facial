@@ -1,18 +1,37 @@
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_commons/google_mlkit_commons.dart';
 
-import '../controllers/live_face_register_controller.dart';
+import '../controllers/live_face_register_controller.dart' show FaceFrameMetrics;
 import '../models/register_scan_step.dart';
 import '../theme/app_theme.dart';
 import '../utils/camera_input_image.dart';
+import '../utils/responsive.dart';
+
+class GuideCircleGeometry {
+  GuideCircleGeometry({
+    required Size size,
+    required double topReserved,
+    required double bottomReserved,
+  }) {
+    final availableHeight = (size.height - topReserved - bottomReserved).clamp(180.0, size.height);
+    final centerY = topReserved + availableHeight * 0.5;
+    center = Offset(size.width / 2, centerY);
+    final widthBased = size.width * 0.36;
+    final heightBased = availableHeight * 0.34;
+    radius = widthBased.clamp(88.0, heightBased).toDouble();
+  }
+
+  late final Offset center;
+  late final double radius;
+}
 
 class FaceScanOverlay extends StatelessWidget {
   const FaceScanOverlay({
     super.key,
-    required this.controller,
     required this.metrics,
     required this.canvasSize,
     required this.imageSize,
@@ -21,9 +40,10 @@ class FaceScanOverlay extends StatelessWidget {
     required this.aligned,
     required this.poseOk,
     required this.stepIndex,
+    required this.topReserved,
+    required this.bottomReserved,
   });
 
-  final LiveFaceRegisterController controller;
   final FaceFrameMetrics? metrics;
   final Size canvasSize;
   final Size imageSize;
@@ -32,9 +52,17 @@ class FaceScanOverlay extends StatelessWidget {
   final bool aligned;
   final bool poseOk;
   final int stepIndex;
+  final double topReserved;
+  final double bottomReserved;
 
   @override
   Widget build(BuildContext context) {
+    final geometry = GuideCircleGeometry(
+      size: canvasSize,
+      topReserved: topReserved,
+      bottomReserved: bottomReserved,
+    );
+
     return CustomPaint(
       size: canvasSize,
       painter: _FaceScanPainter(
@@ -44,7 +72,7 @@ class FaceScanOverlay extends StatelessWidget {
         rotation: rotation ?? InputImageRotation.rotation0deg,
         lensDirection: lensDirection,
         aligned: aligned && poseOk,
-        stepIndex: stepIndex,
+        geometry: geometry,
       ),
     );
   }
@@ -58,7 +86,7 @@ class _FaceScanPainter extends CustomPainter {
     required this.rotation,
     required this.lensDirection,
     required this.aligned,
-    required this.stepIndex,
+    required this.geometry,
   });
 
   final FaceFrameMetrics? metrics;
@@ -67,41 +95,37 @@ class _FaceScanPainter extends CustomPainter {
   final InputImageRotation rotation;
   final CameraLensDirection lensDirection;
   final bool aligned;
-  final int stepIndex;
+  final GuideCircleGeometry geometry;
 
   @override
   void paint(Canvas canvas, Size size) {
     _drawDimmedMask(canvas, size);
-    _drawGuideCircle(canvas, size);
+    _drawGuideCircle(canvas);
     if (metrics != null) {
       _drawMesh(canvas, metrics!);
     }
   }
 
   void _drawDimmedMask(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height * 0.42);
-    final radius = size.width * 0.36;
     final background = Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
     final hole = Path()
-      ..addOval(Rect.fromCircle(center: center, radius: radius));
+      ..addOval(Rect.fromCircle(center: geometry.center, radius: geometry.radius));
     final mask = Path.combine(PathOperation.difference, background, hole);
     canvas.drawPath(mask, Paint()..color = const Color(0xCC070D18));
   }
 
-  void _drawGuideCircle(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height * 0.42);
-    final radius = size.width * 0.36;
+  void _drawGuideCircle(Canvas canvas) {
     final ringColor = aligned ? AppColors.success : AppColors.accent;
     final paint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = aligned ? 4 : 3
       ..color = ringColor;
-    canvas.drawCircle(center, radius, paint);
+    canvas.drawCircle(geometry.center, geometry.radius, paint);
 
     if (aligned) {
       canvas.drawCircle(
-        center,
-        radius + 6,
+        geometry.center,
+        geometry.radius + 6,
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 2
@@ -138,7 +162,8 @@ class _FaceScanPainter extends CustomPainter {
   bool shouldRepaint(covariant _FaceScanPainter oldDelegate) {
     return oldDelegate.metrics != metrics ||
         oldDelegate.aligned != aligned ||
-        oldDelegate.stepIndex != stepIndex ||
+        oldDelegate.geometry.center != geometry.center ||
+        oldDelegate.geometry.radius != geometry.radius ||
         oldDelegate.canvasSize != canvasSize;
   }
 }
@@ -153,16 +178,29 @@ class ScanStepChips extends StatelessWidget {
   final int stepIndex;
   final Map<String, File> captures;
 
+  static const _shortLabels = {
+    'front': 'Frontal',
+    'left': 'Izq.',
+    'right': 'Der.',
+  };
+
   @override
   Widget build(BuildContext context) {
+    final compact = AppResponsive.isCompact(context);
+
     return Row(
       children: registerScanSteps.map((step) {
         final done = captures.containsKey(step.key);
         final active = registerScanSteps[stepIndex].key == step.key;
+        final label = compact ? (_shortLabels[step.key] ?? step.label) : step.label;
+
         return Expanded(
           child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 4),
-            padding: const EdgeInsets.symmetric(vertical: 10),
+            margin: const EdgeInsets.symmetric(horizontal: 3),
+            padding: EdgeInsets.symmetric(
+              vertical: compact ? 8 : 10,
+              horizontal: 4,
+            ),
             decoration: BoxDecoration(
               color: done
                   ? AppColors.success.withValues(alpha: 0.18)
@@ -179,11 +217,14 @@ class ScanStepChips extends StatelessWidget {
               ),
             ),
             child: Text(
-              step.label,
+              label,
               textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: compact ? 11 : 12,
                 fontWeight: FontWeight.w700,
+                height: 1.15,
                 color: done || active ? AppColors.textPrimary : AppColors.textMuted,
               ),
             ),
@@ -208,8 +249,11 @@ class ScanStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compact = AppResponsive.isCompact(context);
+
     return Container(
-      padding: const EdgeInsets.all(16),
+      width: double.infinity,
+      padding: EdgeInsets.all(compact ? 14 : 16),
       decoration: BoxDecoration(
         color: AppColors.surface.withValues(alpha: 0.92),
         borderRadius: BorderRadius.circular(18),
@@ -227,6 +271,8 @@ class ScanStatusCard extends StatelessWidget {
         children: [
           Text(
             stepLabel,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: AppColors.accent,
               fontSize: 12,
@@ -237,9 +283,11 @@ class ScanStatusCard extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             title,
-            style: const TextStyle(
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
               color: AppColors.textPrimary,
-              fontSize: 18,
+              fontSize: compact ? 16 : 18,
               fontWeight: FontWeight.w800,
             ),
           ),

@@ -1,22 +1,29 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../utils/responsive.dart';
 
 class AppScreenShell extends StatelessWidget {
   const AppScreenShell({
     super.key,
     required this.child,
     this.appBar,
-    this.padding = const EdgeInsets.all(20),
+    this.padding,
+    this.scrollable = false,
   });
 
   final Widget child;
   final PreferredSizeWidget? appBar;
-  final EdgeInsets padding;
+  final EdgeInsets? padding;
+  final bool scrollable;
 
   @override
   Widget build(BuildContext context) {
+    final resolvedPadding =
+        padding ?? EdgeInsets.all(AppResponsive.horizontalPadding(context));
+
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       extendBodyBehindAppBar: appBar != null,
       appBar: appBar,
       body: Container(
@@ -32,12 +39,39 @@ class AppScreenShell extends StatelessWidget {
           ),
         ),
         child: SafeArea(
-          child: Padding(
-            padding: padding,
-            child: child,
-          ),
+          child: scrollable
+              ? _ScrollableBody(padding: resolvedPadding, child: child)
+              : Padding(padding: resolvedPadding, child: child),
         ),
       ),
+    );
+  }
+}
+
+class _ScrollableBody extends StatelessWidget {
+  const _ScrollableBody({
+    required this.padding,
+    required this.child,
+  });
+
+  final EdgeInsets padding;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          padding: padding,
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: constraints.maxHeight - padding.vertical,
+            ),
+            child: child,
+          ),
+        );
+      },
     );
   }
 }
@@ -77,9 +111,9 @@ class BrandHeader extends StatelessWidget {
         const SizedBox(height: 14),
         Text(
           title,
-          style: const TextStyle(
+          style: TextStyle(
             color: AppColors.textPrimary,
-            fontSize: 28,
+            fontSize: AppResponsive.titleSize(context),
             fontWeight: FontWeight.w800,
             height: 1.1,
           ),
@@ -87,9 +121,9 @@ class BrandHeader extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           subtitle,
-          style: const TextStyle(
+          style: TextStyle(
             color: AppColors.textMuted,
-            fontSize: 15,
+            fontSize: AppResponsive.bodySize(context),
             height: 1.4,
           ),
         ),

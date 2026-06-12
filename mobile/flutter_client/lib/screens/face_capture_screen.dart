@@ -6,6 +6,7 @@ import '../api/face_api_client.dart';
 import '../controllers/live_face_register_controller.dart';
 import '../models/register_scan_step.dart';
 import '../theme/app_theme.dart';
+import '../utils/responsive.dart';
 import '../widgets/face_scan_overlay.dart';
 
 class FaceCaptureScreen extends StatefulWidget {
@@ -87,11 +88,18 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
   Widget build(BuildContext context) {
     final name = widget.worker['name'] as String? ?? 'Trabajador';
     final camera = _scanner.cameraController;
+    final showErrorButton = _scanner.phase == ScanPhase.error;
+    final bottomReserved = AppResponsive.scanBottomReserved(
+      context,
+      showErrorButton: showErrorButton,
+    );
+    final topReserved = AppResponsive.scanTopReserved(context);
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
         backgroundColor: AppColors.background,
+        resizeToAvoidBottomInset: false,
         body: Stack(
           fit: StackFit.expand,
           children: [
@@ -108,7 +116,6 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
               LayoutBuilder(
                 builder: (context, constraints) {
                   return FaceScanOverlay(
-                    controller: _scanner,
                     metrics: _scanner.latestMetrics,
                     canvasSize: Size(constraints.maxWidth, constraints.maxHeight),
                     imageSize: _scanner.imageSize,
@@ -117,10 +124,12 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
                     aligned: _scanner.aligned,
                     poseOk: _scanner.poseOk,
                     stepIndex: _scanner.stepIndex,
+                    topReserved: topReserved,
+                    bottomReserved: bottomReserved,
                   );
                 },
               ),
-            _buildChrome(name),
+            _buildChrome(name, showErrorButton),
           ],
         ),
       ),
@@ -138,16 +147,17 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
     );
   }
 
-  Widget _buildChrome(String name) {
+  Widget _buildChrome(String name, bool showErrorButton) {
     final step = registerScanSteps[_scanner.stepIndex];
     final stepLabel =
         'Paso ${_scanner.stepIndex + 1}/${registerScanSteps.length}: ${step.label}';
+    final horizontal = AppResponsive.horizontalPadding(context);
 
     return SafeArea(
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+            padding: EdgeInsets.fromLTRB(4, 4, 4, 0),
             child: Row(
               children: [
                 IconButton(
@@ -159,6 +169,9 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
                     children: [
                       Text(
                         name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
                         style: const TextStyle(
                           color: AppColors.textPrimary,
                           fontWeight: FontWeight.w700,
@@ -166,6 +179,8 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
                       ),
                       Text(
                         'Registro facial automatico',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: AppColors.textMuted.withValues(alpha: 0.9),
                           fontSize: 12,
@@ -179,38 +194,47 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
             ),
           ),
           const Spacer(),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                ScanStepChips(
-                  stepIndex: _scanner.stepIndex,
-                  captures: _scanner.captures,
-                ),
-                const SizedBox(height: 12),
-                ScanStatusCard(
-                  title: _scanner.statusTitle,
-                  hint: _scanner.errorMessage ?? _scanner.statusHint,
-                  stepLabel: stepLabel,
-                ),
-                if (_scanner.phase == ScanPhase.error) ...[
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.42,
+            ),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(horizontal, 0, horizontal, 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ScanStepChips(
+                    stepIndex: _scanner.stepIndex,
+                    captures: _scanner.captures,
+                  ),
                   const SizedBox(height: 12),
-                  FilledButton(
-                    onPressed: () {
-                      _submitting = false;
-                      _scanner.resetAndRestart();
-                    },
-                    child: const Text('Reintentar escaneo'),
+                  ScanStatusCard(
+                    title: _scanner.statusTitle,
+                    hint: _scanner.errorMessage ?? _scanner.statusHint,
+                    stepLabel: stepLabel,
                   ),
+                  if (showErrorButton) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: () {
+                          _submitting = false;
+                          _scanner.resetAndRestart();
+                        },
+                        child: const Text('Reintentar escaneo'),
+                      ),
+                    ),
+                  ],
+                  if (_scanner.phase == ScanPhase.submitting) ...[
+                    const SizedBox(height: 16),
+                    const LinearProgressIndicator(
+                      color: AppColors.accent,
+                      backgroundColor: AppColors.surfaceLight,
+                    ),
+                  ],
                 ],
-                if (_scanner.phase == ScanPhase.submitting) ...[
-                  const SizedBox(height: 16),
-                  const LinearProgressIndicator(
-                    color: AppColors.accent,
-                    backgroundColor: AppColors.surfaceLight,
-                  ),
-                ],
-              ],
+              ),
             ),
           ),
         ],
