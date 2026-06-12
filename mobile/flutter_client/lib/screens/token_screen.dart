@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../api/face_api_client.dart';
 import '../config/api_config.dart';
+import '../theme/app_theme.dart';
+import '../widgets/app_screen_shell.dart';
 
 class TokenScreen extends StatefulWidget {
   const TokenScreen({
@@ -77,13 +79,13 @@ class _TokenScreenState extends State<TokenScreen> {
       setState(() => _error = error.body);
     } on SocketException {
       setState(() => _error =
-          'Sin conexion al servidor. Usa $kProductionApiBaseUrl (no 10.0.2.2 en celular real).');
+          'Sin conexion al servidor. Verifica tu internet y la URL $kProductionApiBaseUrl');
     } catch (error) {
       final message = error.toString();
       if (message.contains('Connection timed out') ||
           message.contains('10.0.2.2')) {
         setState(() => _error =
-            'No llega al servidor. En celular usa: $kProductionApiBaseUrl');
+            'No llega al servidor. Usa: $kProductionApiBaseUrl');
         return;
       }
       setState(() => _error = 'No se pudo validar el token: $error');
@@ -94,56 +96,81 @@ class _TokenScreenState extends State<TokenScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Registro facial')),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            const Text(
-              'Ingresa tu token',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
+    return AppScreenShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const BrandHeader(
+            title: 'Ingresa tu token',
+            subtitle:
+                'RRHH te envio un token unico por correo. No necesitas crear cuenta.',
+          ),
+          const SizedBox(height: 28),
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: AppColors.border),
             ),
-            const SizedBox(height: 8),
-            const Text(
-              'RRHH te envio un token unico por correo. No necesitas crear cuenta.',
+            child: Column(
+              children: [
+                TextField(
+                  controller: _baseUrlController,
+                  style: const TextStyle(color: AppColors.textPrimary),
+                  decoration: const InputDecoration(
+                    labelText: 'Servidor',
+                    prefixIcon: Icon(Icons.cloud_outlined, color: AppColors.accent),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: _tokenController,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    letterSpacing: 1.2,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Token de registro',
+                    prefixIcon: Icon(Icons.vpn_key_outlined, color: AppColors.accent),
+                  ),
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _validate(),
+                ),
+              ],
             ),
-            const SizedBox(height: 24),
-            TextField(
-              controller: _baseUrlController,
-              decoration: const InputDecoration(
-                labelText: 'URL del servidor',
-                hintText: kProductionApiBaseUrl,
-                border: OutlineInputBorder(),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.red.withValues(alpha: 0.35)),
               ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _tokenController,
-              decoration: const InputDecoration(
-                labelText: 'Token de registro',
-                border: OutlineInputBorder(),
+              child: Text(
+                _error!,
+                style: const TextStyle(color: Color(0xFFFCA5A5)),
               ),
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _validate(),
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 12),
-              Text(_error!, style: const TextStyle(color: Colors.red)),
-            ],
-            const SizedBox(height: 24),
-            FilledButton(
-              onPressed: _loading ? null : _validate,
-              child: _loading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Validar token'),
             ),
           ],
-        ),
+          const Spacer(),
+          FilledButton(
+            onPressed: _loading ? null : _validate,
+            child: _loading
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Text('Validar token'),
+          ),
+        ],
       ),
     );
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'api/face_api_client.dart';
 import 'config/api_config.dart';
@@ -6,8 +7,13 @@ import 'screens/confirmation_screen.dart';
 import 'screens/face_capture_screen.dart';
 import 'screens/token_screen.dart';
 import 'screens/worker_data_screen.dart';
+import 'theme/app_theme.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+  ]);
   runApp(const IaFacialMobileApp());
 }
 
@@ -19,10 +25,7 @@ class IaFacialMobileApp extends StatelessWidget {
     return MaterialApp(
       title: 'IA Facial Enterprise',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1D4ED8)),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.dark(),
       home: const TokenRegistrationFlow(),
     );
   }

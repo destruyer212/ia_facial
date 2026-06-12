@@ -1,9 +1,12 @@
-import 'dart:io';
-
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:flutter/services.dart';
 
 import '../api/face_api_client.dart';
+import '../controllers/live_face_register_controller.dart';
+import '../models/register_scan_step.dart';
+import '../theme/app_theme.dart';
+import '../widgets/face_scan_overlay.dart';
 
 class FaceCaptureScreen extends StatefulWidget {
   const FaceCaptureScreen({
@@ -26,53 +29,33 @@ class FaceCaptureScreen extends StatefulWidget {
 }
 
 class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
-  final _picker = ImagePicker();
-  final _steps = const [
-    _CaptureStep(key: 'front', title: 'Foto frontal', hint: 'Mira directo a la camara'),
-    _CaptureStep(key: 'left', title: 'Giro izquierda', hint: 'Gira levemente hacia tu izquierda'),
-    _CaptureStep(key: 'right', title: 'Giro derecha', hint: 'Gira levemente hacia tu derecha'),
-  ];
-
-  final Map<String, File?> _captures = {
-    'front': null,
-    'left': null,
-    'right': null,
-  };
-
-  int _currentStep = 0;
+  late final LiveFaceRegisterController _scanner;
   bool _submitting = false;
-  String? _error;
 
-  Future<void> _captureCurrent() async {
-    final picked = await _picker.pickImage(
-      source: ImageSource.camera,
-      preferredCameraDevice: CameraDevice.front,
-      imageQuality: 85,
-    );
-    if (picked == null) return;
-    setState(() {
-      _captures[_steps[_currentStep].key] = File(picked.path);
-      _error = null;
-      if (_currentStep < _steps.length - 1) {
-        _currentStep += 1;
-      }
-    });
+  @override
+  void initState() {
+    super.initState();
+    _scanner = LiveFaceRegisterController();
+    _scanner.addListener(_onScannerChanged);
+    _scanner.initialize();
   }
 
-  Future<void> _submit() async {
-    final front = _captures['front'];
-    final left = _captures['left'];
-    final right = _captures['right'];
-    if (front == null || left == null || right == null) {
-      setState(() => _error = 'Completa las tres capturas antes de enviar.');
-      return;
+  void _onScannerChanged() {
+    if (_scanner.phase == ScanPhase.done && mounted && !_submitting) {
+      _submitCaptures();
     }
+    setState(() {});
+  }
 
-    setState(() {
-      _submitting = true;
-      _error = null;
-    });
+  Future<void> _submitCaptures() async {
+    if (_submitting) return;
+    _submitting = true;
+    final front = _scanner.captures['front'];
+    final left = _scanner.captures['left'];
+    final right = _scanner.captures['right'];
+    if (front == null || left == null || right == null) return;
 
+    _scanner.markSubmitting();
     try {
       final result = await widget.apiClient.registerMobileFaceProfile(
         token: widget.token,
@@ -80,116 +63,158 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
         leftFile: left,
         rightFile: right,
       );
-      widget.onCompleted(result);
+      if (mounted) widget.onCompleted(result);
     } on FaceApiException catch (error) {
-      setState(() => _error = error.body);
+      _scanner.phase = ScanPhase.error;
+      _scanner.errorMessage = error.body;
+      _scanner.statusHint = error.body;
     } catch (error) {
-      setState(() => _error = 'No se pudo registrar el rostro: $error');
-    } finally {
-      if (mounted) setState(() => _submitting = false);
+      _scanner.phase = ScanPhase.error;
+      _scanner.errorMessage = 'No se pudo registrar el rostro: $error';
+      _scanner.statusHint = _scanner.errorMessage ?? 'Error de registro';
     }
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _scanner.removeListener(_onScannerChanged);
+    _scanner.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final step = _steps[_currentStep];
-    final currentFile = _captures[step.key];
-    final allDone = _captures.values.every((file) => file != null);
+    final name = widget.worker['name'] as String? ?? 'Trabajador';
+    final camera = _scanner.cameraController;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Registro facial'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: widget.onBack,
-        ),
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                step.title,
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 8),
-              Text(step.hint),
-              const SizedBox(height: 8),
-              Text(
-                'Paso ${_currentStep + 1} de ${_steps.length}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 20),
-              Expanded(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.blueGrey.shade200),
-                    borderRadius: BorderRadius.circular(16),
-                    color: Colors.blueGrey.shade50,
-                  ),
-                  child: currentFile == null
-                      ? const Center(child: Icon(Icons.face_retouching_natural, size: 72))
-                      : ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: Image.file(currentFile, fit: BoxFit.cover),
-                        ),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (camera != null && camera.value.isInitialized)
+              _buildCameraPreview(camera)
+            else
+              const ColoredBox(
+                color: AppColors.background,
+                child: Center(
+                  child: CircularProgressIndicator(color: AppColors.accent),
                 ),
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: _steps.map((item) {
-                  final done = _captures[item.key] != null;
-                  return Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: LinearProgressIndicator(
-                        value: done ? 1 : 0,
-                        minHeight: 6,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
+            if (camera != null && camera.value.isInitialized)
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  return FaceScanOverlay(
+                    controller: _scanner,
+                    metrics: _scanner.latestMetrics,
+                    canvasSize: Size(constraints.maxWidth, constraints.maxHeight),
+                    imageSize: _scanner.imageSize,
+                    rotation: _scanner.imageRotation,
+                    lensDirection: camera.description.lensDirection,
+                    aligned: _scanner.aligned,
+                    poseOk: _scanner.poseOk,
+                    stepIndex: _scanner.stepIndex,
                   );
-                }).toList(),
+                },
               ),
-              if (_error != null) ...[
-                const SizedBox(height: 12),
-                Text(_error!, style: const TextStyle(color: Colors.red)),
-              ],
-              const SizedBox(height: 16),
-              if (!allDone)
-                FilledButton(
-                  onPressed: _submitting ? null : _captureCurrent,
-                  child: Text(currentFile == null ? 'Tomar foto' : 'Repetir y continuar'),
-                ),
-              if (allDone)
-                FilledButton(
-                  onPressed: _submitting ? null : _submit,
-                  child: _submitting
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Enviar registro facial'),
-                ),
-            ],
-          ),
+            _buildChrome(name),
+          ],
         ),
       ),
     );
   }
-}
 
-class _CaptureStep {
-  const _CaptureStep({
-    required this.key,
-    required this.title,
-    required this.hint,
-  });
+  Widget _buildCameraPreview(CameraController camera) {
+    return FittedBox(
+      fit: BoxFit.cover,
+      child: SizedBox(
+        width: camera.value.previewSize?.height ?? 1,
+        height: camera.value.previewSize?.width ?? 1,
+        child: CameraPreview(camera),
+      ),
+    );
+  }
 
-  final String key;
-  final String title;
-  final String hint;
+  Widget _buildChrome(String name) {
+    final step = registerScanSteps[_scanner.stepIndex];
+    final stepLabel =
+        'Paso ${_scanner.stepIndex + 1}/${registerScanSteps.length}: ${step.label}';
+
+    return SafeArea(
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+            child: Row(
+              children: [
+                IconButton(
+                  onPressed: _scanner.phase == ScanPhase.submitting ? null : widget.onBack,
+                  icon: const Icon(Icons.arrow_back, color: Colors.white),
+                ),
+                Expanded(
+                  child: Column(
+                    children: [
+                      Text(
+                        name,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        'Registro facial automatico',
+                        style: TextStyle(
+                          color: AppColors.textMuted.withValues(alpha: 0.9),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 48),
+              ],
+            ),
+          ),
+          const Spacer(),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                ScanStepChips(
+                  stepIndex: _scanner.stepIndex,
+                  captures: _scanner.captures,
+                ),
+                const SizedBox(height: 12),
+                ScanStatusCard(
+                  title: _scanner.statusTitle,
+                  hint: _scanner.errorMessage ?? _scanner.statusHint,
+                  stepLabel: stepLabel,
+                ),
+                if (_scanner.phase == ScanPhase.error) ...[
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: () {
+                      _submitting = false;
+                      _scanner.resetAndRestart();
+                    },
+                    child: const Text('Reintentar escaneo'),
+                  ),
+                ],
+                if (_scanner.phase == ScanPhase.submitting) ...[
+                  const SizedBox(height: 16),
+                  const LinearProgressIndicator(
+                    color: AppColors.accent,
+                    backgroundColor: AppColors.surfaceLight,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
