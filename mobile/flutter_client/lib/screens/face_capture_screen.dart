@@ -115,9 +115,21 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
             if (camera != null && camera.value.isInitialized)
               LayoutBuilder(
                 builder: (context, constraints) {
+                  final canvasSize = Size(constraints.maxWidth, constraints.maxHeight);
+                  final geometry = GuideCircleGeometry(
+                    size: canvasSize,
+                    topReserved: topReserved,
+                    bottomReserved: bottomReserved,
+                  );
+                  _scanner.updateScanTargets(
+                    canvas: canvasSize,
+                    center: geometry.center,
+                    radius: geometry.radius,
+                  );
+
                   return FaceScanOverlay(
                     metrics: _scanner.latestMetrics,
-                    canvasSize: Size(constraints.maxWidth, constraints.maxHeight),
+                    canvasSize: canvasSize,
                     imageSize: _scanner.imageSize,
                     rotation: _scanner.imageRotation,
                     lensDirection: camera.description.lensDirection,

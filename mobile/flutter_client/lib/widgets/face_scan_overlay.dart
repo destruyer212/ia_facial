@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:camera/camera.dart';
@@ -8,7 +9,7 @@ import 'package:google_mlkit_commons/google_mlkit_commons.dart';
 import '../controllers/live_face_register_controller.dart' show FaceFrameMetrics;
 import '../models/register_scan_step.dart';
 import '../theme/app_theme.dart';
-import '../utils/camera_input_image.dart';
+import '../utils/camera_overlay_mapper.dart';
 import '../utils/responsive.dart';
 
 class GuideCircleGeometry {
@@ -17,7 +18,8 @@ class GuideCircleGeometry {
     required double topReserved,
     required double bottomReserved,
   }) {
-    final availableHeight = (size.height - topReserved - bottomReserved).clamp(180.0, size.height);
+    final availableHeight =
+        (size.height - topReserved - bottomReserved).clamp(180.0, size.height);
     final centerY = topReserved + availableHeight * 0.5;
     center = Offset(size.width / 2, centerY);
     final widthBased = size.width * 0.36;
@@ -63,14 +65,18 @@ class FaceScanOverlay extends StatelessWidget {
       bottomReserved: bottomReserved,
     );
 
+    final mapper = CameraOverlayMapper(
+      canvasSize: canvasSize,
+      imageSize: imageSize,
+      rotation: rotation ?? InputImageRotation.rotation0deg,
+      lensDirection: lensDirection,
+    );
+
     return CustomPaint(
       size: canvasSize,
       painter: _FaceScanPainter(
         metrics: metrics,
-        canvasSize: canvasSize,
-        imageSize: imageSize,
-        rotation: rotation ?? InputImageRotation.rotation0deg,
-        lensDirection: lensDirection,
+        mapper: mapper,
         aligned: aligned && poseOk,
         geometry: geometry,
       ),
@@ -81,28 +87,25 @@ class FaceScanOverlay extends StatelessWidget {
 class _FaceScanPainter extends CustomPainter {
   _FaceScanPainter({
     required this.metrics,
-    required this.canvasSize,
-    required this.imageSize,
-    required this.rotation,
-    required this.lensDirection,
+    required this.mapper,
     required this.aligned,
     required this.geometry,
   });
 
   final FaceFrameMetrics? metrics;
-  final Size canvasSize;
-  final Size imageSize;
-  final InputImageRotation rotation;
-  final CameraLensDirection lensDirection;
+  final CameraOverlayMapper mapper;
   final bool aligned;
   final GuideCircleGeometry geometry;
 
   @override
   void paint(Canvas canvas, Size size) {
     _drawDimmedMask(canvas, size);
-    _drawGuideCircle(canvas);
-    if (metrics != null) {
-      _drawMesh(canvas, metrics!);
+    _drawTechGuideRing(canvas);
+    if (metrics != null && mapper.isValid) {
+      _drawTechMesh(canvas, metrics!);
+      if (aligned) {
+        _drawLockBrackets(canvas, metrics!);
+      }
     }
   }
 
@@ -114,48 +117,149 @@ class _FaceScanPainter extends CustomPainter {
     canvas.drawPath(mask, Paint()..color = const Color(0xCC070D18));
   }
 
-  void _drawGuideCircle(Canvas canvas) {
+  void _drawTechGuideRing(Canvas canvas) {
     final ringColor = aligned ? AppColors.success : AppColors.accent;
-    final paint = Paint()
+    final center = geometry.center;
+    final radius = geometry.radius;
+
+    canvas.drawCircle(
+      center,
+      radius + 10,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = AppColors.accent.withValues(alpha: 0.25),
+    );
+
+    final dashPaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = aligned ? 4 : 3
+      ..strokeWidth = aligned ? 3.5 : 2.5
       ..color = ringColor;
-    canvas.drawCircle(geometry.center, geometry.radius, paint);
+
+    const segments = 48;
+    const gapRatio = 0.35;
+    for (var i = 0; i < segments; i++) {
+      final startAngle = (i / segments) * math.pi * 2;
+      final sweep = (math.pi * 2 / segments) * (1 - gapRatio);
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        startAngle,
+        sweep,
+        false,
+        dashPaint,
+      );
+    }
 
     if (aligned) {
       canvas.drawCircle(
-        geometry.center,
-        geometry.radius + 6,
+        center,
+        radius + 5,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 2
-          ..color = AppColors.accentGlow,
+          ..strokeWidth = 1.5
+          ..color = AppColors.success.withValues(alpha: 0.55),
       );
     }
   }
 
-  void _drawMesh(Canvas canvas, FaceFrameMetrics metrics) {
-    if (imageSize == Size.zero) return;
-    for (final point in metrics.meshPoints) {
-      final translated = translatePoint(
-        x: point.dx,
-        y: point.dy,
-        canvasSize: canvasSize,
-        imageSize: imageSize,
-        rotation: rotation,
-        lensDirection: lensDirection,
+  void _drawTechMesh(Canvas canvas, FaceFrameMetrics metrics) {
+    final accent = aligned ? AppColors.success : AppColors.accent;
+    final glow = aligned
+        ? AppColors.success.withValues(alpha: 0.45)
+        : AppColors.accentGlow;
+
+    if (metrics.faceOvalPoints.length >= 3) {
+      final ovalPath = Path();
+      for (var i = 0; i < metrics.faceOvalPoints.length; i++) {
+        final mapped = mapper.mapOffset(metrics.faceOvalPoints[i]);
+        if (i == 0) {
+          ovalPath.moveTo(mapped.dx, mapped.dy);
+        } else {
+          ovalPath.lineTo(mapped.dx, mapped.dy);
+        }
+      }
+      ovalPath.close();
+
+      canvas.drawPath(
+        ovalPath,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = glow
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
       );
-      canvas.drawCircle(
-        translated,
-        3.2,
-        Paint()..color = AppColors.accentGlow,
-      );
-      canvas.drawCircle(
-        translated,
-        1.6,
-        Paint()..color = AppColors.accent,
+      canvas.drawPath(
+        ovalPath,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2
+          ..color = accent.withValues(alpha: 0.85),
       );
     }
+
+    for (final point in metrics.meshPoints) {
+      _drawHudPoint(canvas, mapper.mapOffset(point), accent, glow);
+    }
+
+    for (final point in metrics.faceOvalPoints) {
+      _drawHudPoint(canvas, mapper.mapOffset(point), accent, glow, small: true);
+    }
+  }
+
+  void _drawHudPoint(
+    Canvas canvas,
+    Offset position,
+    Color accent,
+    Color glow, {
+    bool small = false,
+  }) {
+    final size = small ? 2.0 : 2.8;
+    canvas.drawCircle(
+      position,
+      size + 2.5,
+      Paint()
+        ..color = glow
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+    );
+
+    final paint = Paint()
+      ..color = accent
+      ..strokeWidth = small ? 1.0 : 1.3
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawLine(
+      Offset(position.dx - size, position.dy),
+      Offset(position.dx + size, position.dy),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(position.dx, position.dy - size),
+      Offset(position.dx, position.dy + size),
+      paint,
+    );
+    canvas.drawCircle(position, 0.8, Paint()..color = Colors.white.withValues(alpha: 0.9));
+  }
+
+  void _drawLockBrackets(Canvas canvas, FaceFrameMetrics metrics) {
+    final box = metrics.boundingBox;
+    final tl = mapper.mapPoint(box.left, box.top);
+    final br = mapper.mapPoint(box.right, box.bottom);
+    final rect = Rect.fromPoints(tl, br);
+    final bracket = math.min(rect.width, rect.height) * 0.12;
+    final paint = Paint()
+      ..color = AppColors.success.withValues(alpha: 0.9)
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawLine(rect.topLeft, rect.topLeft + Offset(bracket, 0), paint);
+    canvas.drawLine(rect.topLeft, rect.topLeft + Offset(0, bracket), paint);
+    canvas.drawLine(rect.topRight, rect.topRight + Offset(-bracket, 0), paint);
+    canvas.drawLine(rect.topRight, rect.topRight + Offset(0, bracket), paint);
+    canvas.drawLine(rect.bottomLeft, rect.bottomLeft + Offset(bracket, 0), paint);
+    canvas.drawLine(rect.bottomLeft, rect.bottomLeft + Offset(0, -bracket), paint);
+    canvas.drawLine(rect.bottomRight, rect.bottomRight + Offset(-bracket, 0), paint);
+    canvas.drawLine(rect.bottomRight, rect.bottomRight + Offset(0, -bracket), paint);
   }
 
   @override
@@ -163,8 +267,7 @@ class _FaceScanPainter extends CustomPainter {
     return oldDelegate.metrics != metrics ||
         oldDelegate.aligned != aligned ||
         oldDelegate.geometry.center != geometry.center ||
-        oldDelegate.geometry.radius != geometry.radius ||
-        oldDelegate.canvasSize != canvasSize;
+        oldDelegate.geometry.radius != geometry.radius;
   }
 }
 

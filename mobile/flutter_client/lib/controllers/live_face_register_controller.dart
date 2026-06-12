@@ -11,6 +11,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../models/register_scan_step.dart';
 import '../utils/camera_input_image.dart';
+import '../utils/camera_overlay_mapper.dart';
 
 enum ScanPhase { idle, loading, scanning, capturing, submitting, done, error }
 
@@ -24,6 +25,8 @@ class FaceFrameMetrics {
     required this.frameWidth,
     required this.frameHeight,
     required this.meshPoints,
+    required this.faceOvalPoints,
+    required this.boundingBox,
   });
 
   final double centerX;
@@ -34,6 +37,8 @@ class FaceFrameMetrics {
   final double frameWidth;
   final double frameHeight;
   final List<Offset> meshPoints;
+  final List<Offset> faceOvalPoints;
+  final Rect boundingBox;
 }
 
 class LiveFaceRegisterController extends ChangeNotifier {
@@ -53,6 +58,9 @@ class LiveFaceRegisterController extends ChangeNotifier {
   FaceFrameMetrics? latestMetrics;
   InputImageRotation? imageRotation;
   Size imageSize = Size.zero;
+  Size canvasSize = Size.zero;
+  Offset circleCenter = Offset.zero;
+  double circleRadius = 0;
   final Map<String, File> captures = {};
   String? errorMessage;
   int _frameSkip = 0;
@@ -128,6 +136,30 @@ class LiveFaceRegisterController extends ChangeNotifier {
     }
   }
 
+  void updateScanTargets({
+    required Size canvas,
+    required Offset center,
+    required double radius,
+  }) {
+    canvasSize = canvas;
+    circleCenter = center;
+    circleRadius = radius;
+  }
+
+  CameraOverlayMapper? get _mapper {
+    final camera = cameraController?.description;
+    final rotation = imageRotation;
+    if (camera == null || rotation == null || !canvasSize.width.isFinite) {
+      return null;
+    }
+    return CameraOverlayMapper(
+      canvasSize: canvasSize,
+      imageSize: imageSize,
+      rotation: rotation,
+      lensDirection: camera.lensDirection,
+    );
+  }
+
   Future<void> _onCameraFrame(CameraImage image) async {
     if (phase != ScanPhase.scanning || _capturingStep || _detector == null) {
       return;
@@ -163,7 +195,7 @@ class LiveFaceRegisterController extends ChangeNotifier {
       final face = faces.first;
       final metrics = _metricsFromFace(face, image.width.toDouble(), image.height.toDouble());
       latestMetrics = metrics;
-      aligned = _isFaceAligned(metrics);
+      aligned = _isFaceAligned(face);
       poseOk = currentStep.matchesPose(metrics.headEulerY);
 
       if (aligned && poseOk) {
@@ -192,15 +224,23 @@ class LiveFaceRegisterController extends ChangeNotifier {
     final centerX = box.left + box.width / 2;
     final centerY = box.top + box.height / 2;
     final points = <Offset>[];
+    final faceOvalPoints = <Offset>[];
 
-    for (final contour in face.contours?.values ?? const Iterable<FaceContour?>.empty()) {
-      if (contour == null) continue;
-      for (final point in contour.points) {
-        points.add(Offset(point.x.toDouble(), point.y.toDouble()));
+    final oval = face.contours?[FaceContourType.face];
+    if (oval != null) {
+      for (final point in oval.points) {
+        faceOvalPoints.add(Offset(point.x.toDouble(), point.y.toDouble()));
       }
     }
 
-    if (points.isEmpty) {
+    face.contours?.forEach((type, contour) {
+      if (contour == null || type == FaceContourType.face) return;
+      for (final point in contour.points) {
+        points.add(Offset(point.x.toDouble(), point.y.toDouble()));
+      }
+    });
+
+    if (points.isEmpty && faceOvalPoints.isEmpty) {
       for (final landmark in face.landmarks.values) {
         final pos = landmark?.position;
         if (pos != null) {
@@ -218,23 +258,32 @@ class LiveFaceRegisterController extends ChangeNotifier {
       frameWidth: width,
       frameHeight: height,
       meshPoints: points,
+      faceOvalPoints: faceOvalPoints,
+      boundingBox: Rect.fromLTRB(box.left, box.top, box.right, box.bottom),
     );
   }
 
-  bool _isFaceAligned(FaceFrameMetrics metrics) {
-    final frameCenterX = metrics.frameWidth / 2;
-    final frameCenterY = metrics.frameHeight / 2;
-    final frameSize = metrics.frameWidth < metrics.frameHeight
-        ? metrics.frameWidth
-        : metrics.frameHeight;
-    final dx = (metrics.centerX - frameCenterX).abs();
-    final dy = (metrics.centerY - frameCenterY).abs();
-    final centerTolerance = frameSize * 0.12;
-    final sizeRatio = metrics.faceWidth / frameSize;
-    return dx <= centerTolerance &&
-        dy <= centerTolerance &&
-        sizeRatio >= 0.26 &&
-        sizeRatio <= 0.64;
+  bool _isFaceAligned(Face face) {
+    final mapper = _mapper;
+    if (mapper == null || !mapper.isValid || circleRadius <= 0) {
+      return false;
+    }
+
+    final box = face.boundingBox;
+    final mapped = mapper.mapFaceRect(
+      left: box.left,
+      top: box.top,
+      width: box.width,
+      height: box.height,
+    );
+
+    final dx = (mapped.center.dx - circleCenter.dx).abs();
+    final dy = (mapped.center.dy - circleCenter.dy).abs();
+    final tolerance = circleRadius * 0.2;
+    final sizeOk = mapped.faceWidth >= circleRadius * 0.5 &&
+        mapped.faceWidth <= circleRadius * 1.5;
+
+    return dx <= tolerance && dy <= tolerance && sizeOk;
   }
 
   Future<void> _captureCurrentStep() async {
