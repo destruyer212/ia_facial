@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 
+from app.core.config import settings
 from app.schemas.employee import EmployeeCatalogResponse, NextEmployeeCodeResponse
 from app.schemas.registration import (
     PreRegisterEmployeeRequest,
@@ -13,6 +14,15 @@ from app.services.registration_token_service import get_registration_token_servi
 router = APIRouter()
 catalog_service = get_employee_catalog_service()
 registration_service = get_registration_token_service()
+
+
+def _public_dev_token(dev_token: str | None, email_sent: bool) -> str | None:
+    """Solo en desarrollo local si Gmail falla; en produccion el token va por correo."""
+    if email_sent or not dev_token:
+        return None
+    if settings.environment.lower() == "production":
+        return None
+    return dev_token
 
 
 @router.get("/catalog", response_model=EmployeeCatalogResponse)
@@ -45,11 +55,11 @@ def pre_register_employee(payload: PreRegisterEmployeeRequest) -> PreRegisterEmp
     return PreRegisterEmployeeResponse(
         worker=worker,
         email_sent=email_sent,
-        dev_token=dev_token,
+        dev_token=_public_dev_token(dev_token, email_sent),
         message=(
-            "Trabajador pre-registrado y token enviado."
+            f"Trabajador pre-registrado. Token enviado a {worker.token_sent_to_email}."
             if email_sent
-            else f"Trabajador pre-registrado. {email_message}"
+            else f"No se pudo enviar el correo con el token. {email_message}"
         ),
     )
 
@@ -63,8 +73,12 @@ def send_registration_token(employee_id: str) -> RegistrationTokenResponse:
     return RegistrationTokenResponse(
         worker=worker,
         email_sent=email_sent,
-        dev_token=dev_token,
-        message="Token reenviado." if email_sent else f"Token regenerado para envio manual. {email_message}",
+        dev_token=_public_dev_token(dev_token, email_sent),
+        message=(
+            f"Token reenviado a {worker.token_sent_to_email}."
+            if email_sent
+            else f"No se pudo enviar el correo. {email_message}"
+        ),
     )
 
 
@@ -77,8 +91,12 @@ def regenerate_registration_token(employee_id: str) -> RegistrationTokenResponse
     return RegistrationTokenResponse(
         worker=worker,
         email_sent=email_sent,
-        dev_token=dev_token,
-        message="Token regenerado y enviado." if email_sent else f"Token regenerado. {email_message}",
+        dev_token=_public_dev_token(dev_token, email_sent),
+        message=(
+            f"Token regenerado y enviado a {worker.token_sent_to_email}."
+            if email_sent
+            else f"No se pudo enviar el correo. {email_message}"
+        ),
     )
 
 

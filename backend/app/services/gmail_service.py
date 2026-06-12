@@ -9,6 +9,8 @@ from urllib import request
 from urllib.error import URLError
 from urllib.parse import urlencode
 
+from app.core.config import settings
+
 
 class GmailSendResult:
     def __init__(self, sent: bool, message: str) -> None:
@@ -19,7 +21,43 @@ class GmailSendResult:
 class GmailService:
     def __init__(self) -> None:
         self.backend_dir = Path(__file__).resolve().parents[2]
-        self.token_path = self.backend_dir / "token.json"
+        self._token_payload: dict | None = None
+        self._token_path = self._resolve_token_path()
+
+    def _resolve_token_path(self) -> Path:
+        custom = settings.gmail_token_path.strip()
+        if custom:
+            return Path(custom)
+        return self.backend_dir / "token.json"
+
+    def _load_token_payload(self) -> dict:
+        if self._token_payload is not None:
+            return self._token_payload
+
+        inline = settings.gmail_token_json.strip()
+        if inline:
+            self._token_payload = json.loads(inline)
+            return self._token_payload
+
+        if not self._token_path.exists():
+            raise FileNotFoundError(
+                "token.json de Gmail no existe. En local ejecuta generar_token.py; "
+                "en Render configura GMAIL_TOKEN_PATH o GMAIL_TOKEN_JSON."
+            )
+
+        self._token_payload = json.loads(self._token_path.read_text(encoding="utf-8"))
+        return self._token_payload
+
+    def _persist_token_payload(self, payload: dict) -> None:
+        self._token_payload = payload
+        candidates = [self._token_path, Path("/tmp/ia_facial_gmail_token.json")]
+        for path in candidates:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+                return
+            except OSError:
+                continue
 
     def send_registration_token(
         self,
@@ -44,10 +82,14 @@ class GmailService:
         return self._send(to_email=to_email, subject=subject, body=body)
 
     def _send(self, *, to_email: str, subject: str, body: str) -> GmailSendResult:
-        if not self.token_path.exists():
-            return GmailSendResult(False, "token.json de Gmail no existe.")
         try:
-            token_payload = json.loads(self.token_path.read_text(encoding="utf-8"))
+            token_payload = self._load_token_payload()
+        except FileNotFoundError as exc:
+            return GmailSendResult(False, str(exc))
+        except json.JSONDecodeError:
+            return GmailSendResult(False, "GMAIL_TOKEN_JSON no es JSON valido.")
+
+        try:
             access_token = self._access_token(token_payload)
             raw_message = self._build_message(
                 sender="me",
@@ -104,7 +146,7 @@ class GmailService:
             payload["expiry"] = (
                 datetime.now(UTC) + timedelta(seconds=int(refreshed["expires_in"]))
             ).isoformat().replace("+00:00", "Z")
-        self.token_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self._persist_token_payload(payload)
         return access_token
 
     @staticmethod

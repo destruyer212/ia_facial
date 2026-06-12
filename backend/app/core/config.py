@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     r2_secret_access_key: str = ""
     r2_bucket: str = ""
     r2_public_base_url: str = ""
+    # Gmail OAuth: local = backend/token.json; Render = Secret File o GMAIL_TOKEN_JSON
+    gmail_token_path: str = ""
+    gmail_token_json: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
