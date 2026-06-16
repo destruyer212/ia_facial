@@ -18,7 +18,7 @@ class AppResponsive {
 
   static double scanBottomReserved(BuildContext context, {bool showErrorButton = false}) {
     final height = MediaQuery.sizeOf(context).height;
-    final base = isShortScreen(context) ? 0.36 : 0.34;
+    final base = isShortScreen(context) ? 0.32 : 0.30;
     final extra = showErrorButton ? 0.06 : 0;
     return height * (base + extra);
   }

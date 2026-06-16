@@ -43,6 +43,13 @@ class BiometricScanController {
       FrameThrottler(intervalMs: BiometricConfig.frameIntervalMs);
   final StabilityTracker _stability = StabilityTracker();
 
+  void _resetStabilityForStep(String stepKey) {
+    _stability
+      ..requiredGoodFrames = BiometricConfig.stabilityFramesFor(stepKey)
+      ..badFrameDecay = BiometricConfig.stabilityBadFrameDecay
+      ..reset();
+  }
+
   CameraController? cameraController;
   InputImageRotation? imageRotation;
   Size imageSize = Size.zero;
@@ -111,6 +118,7 @@ class BiometricScanController {
 
       await cameraController!.startImageStream(_onCameraFrame);
 
+      _resetStabilityForStep(registerScanSteps.first.key);
       _updateUi(
         uiState.value.copyWith(
           phase: BiometricScanPhase.scanning,
@@ -196,7 +204,6 @@ class BiometricScanController {
       FaceQualityIssue issue = FaceQualityIssue.noFace;
       List<Offset> debugLandmarks = const [];
       var hasFace = false;
-      var alignScore = 1.0;
 
       if (faces.isNotEmpty) {
         hasFace = true;
@@ -218,16 +225,12 @@ class BiometricScanController {
           step: currentStep,
           mappedCenter: mapped.center,
           guide: target,
-        );
-        alignScore = FaceQualityAnalyzer.guideAlignmentScore(
-          mappedCenter: mapped.center,
-          guide: target,
+          lensDirection: camera.lensDirection,
         );
       }
 
       final isGood = issue == FaceQualityIssue.none;
-      final ideal = isGood && _quality.isIdealAlignment(alignScore);
-      final ready = _stability.register(isGood, aligned: ideal);
+      final ready = _stability.register(isGood);
 
       final visualState = _visualFor(issue, isGood, hasFace);
       if (visualState == OverlayVisualState.ready) {
@@ -413,6 +416,7 @@ class BiometricScanController {
       if (!isLast) {
         final nextIndex = uiState.value.stepIndex + 1;
         final nextStep = registerScanSteps[nextIndex];
+        _resetStabilityForStep(nextStep.key);
         _emitTransition(BiometricTransitionKind.idle);
         _updateUi(
           uiState.value.copyWith(
@@ -457,7 +461,7 @@ class BiometricScanController {
 
   Future<void> resetAndRestart() async {
     await disposeResources();
-    _stability.reset();
+    _resetStabilityForStep(registerScanSteps.first.key);
     uiState.value = const BiometricUiState();
     overlayState.value = FaceScanState.initial;
     transitionState.value = BiometricTransitionState.idle;

@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:camera/camera.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
 import '../../models/register_scan_step.dart';
@@ -26,12 +27,19 @@ class FaceQualityAnalyzer {
     return dx * dx + dy * dy;
   }
 
+  /// Yaw en grados desde la perspectiva del usuario (selfie frontal).
+  static double userHeadYaw(Face face, CameraLensDirection lens) {
+    final raw = face.headEulerAngleY ?? 0;
+    return lens == CameraLensDirection.front ? -raw : raw;
+  }
+
   FaceQualityIssue analyze({
     required List<Face> faces,
     required double imageWidth,
     required RegisterScanStep step,
     required Offset mappedCenter,
     required AdaptiveOvalGeometry guide,
+    required CameraLensDirection lensDirection,
   }) {
     if (faces.isEmpty) return FaceQualityIssue.noFace;
     if (faces.length > 1) return FaceQualityIssue.multipleFaces;
@@ -49,8 +57,11 @@ class FaceQualityAnalyzer {
     if (alignScore > BiometricConfig.guideAlignMax) {
       return FaceQualityIssue.offCenter;
     }
+    if (step.key == 'front' && alignScore > BiometricConfig.guideAlignIdeal) {
+      return FaceQualityIssue.offCenter;
+    }
 
-    final y = face.headEulerAngleY ?? 0;
+    final y = userHeadYaw(face, lensDirection);
     final z = face.headEulerAngleZ ?? 0;
 
     if (z.abs() > BiometricConfig.maxHeadTiltDegrees) {

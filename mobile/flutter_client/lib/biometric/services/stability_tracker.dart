@@ -5,22 +5,18 @@ class StabilityTracker {
     int? requiredGoodFrames,
     int? badFrameDecay,
   })  : requiredGoodFrames =
-            requiredGoodFrames ?? BiometricConfig.stabilityFrames,
+            requiredGoodFrames ?? BiometricConfig.stabilityFramesFront,
         badFrameDecay = badFrameDecay ?? BiometricConfig.stabilityBadFrameDecay;
 
-  final int requiredGoodFrames;
-  final int badFrameDecay;
+  int requiredGoodFrames;
+  int badFrameDecay;
   int _good = 0;
 
   void reset() => _good = 0;
 
-  bool register(bool isGood, {bool aligned = false}) {
+  bool register(bool isGood) {
     if (isGood) {
-      if (aligned) {
-        _good = requiredGoodFrames;
-      } else {
-        _good++;
-      }
+      _good++;
     } else if (_good > 0) {
       _good = (_good - badFrameDecay).clamp(0, requiredGoodFrames);
     }

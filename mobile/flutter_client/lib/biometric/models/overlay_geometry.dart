@@ -86,12 +86,12 @@ class GuideOvalLayout {
   }) {
     final availableHeight =
         (size.height - topReserved - bottomReserved).clamp(180.0, size.height);
-    final centerY = topReserved + availableHeight * 0.5;
+    final centerY = topReserved + availableHeight * 0.48;
     center = Offset(size.width / 2, centerY);
-    final widthBased = size.width * 0.28;
-    final heightBased = availableHeight * 0.26;
-    rx = widthBased.clamp(76.0, heightBased).toDouble();
-    ry = rx * 1.22;
+    final widthBased = size.width * 0.42;
+    final heightBased = availableHeight * 0.40;
+    rx = widthBased.clamp(112.0, heightBased).toDouble();
+    ry = rx * 1.16;
   }
 
   late final Offset center;

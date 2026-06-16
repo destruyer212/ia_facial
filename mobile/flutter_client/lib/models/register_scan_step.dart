@@ -1,3 +1,5 @@
+import '../biometric/config/biometric_config.dart';
+
 class RegisterScanStep {
   const RegisterScanStep({
     required this.key,
@@ -33,6 +35,6 @@ const registerScanSteps = [
   ),
 ];
 
-bool _frontPose(double y) => y.abs() <= 22;
-bool _leftPose(double y) => y <= -12;
-bool _rightPose(double y) => y >= 12;
+bool _frontPose(double y) => y.abs() <= BiometricConfig.frontPoseMaxDegrees;
+bool _leftPose(double y) => y <= -BiometricConfig.sidePoseMinDegrees;
+bool _rightPose(double y) => y >= BiometricConfig.sidePoseMinDegrees;
