@@ -2110,7 +2110,31 @@ async function startRegisterFaceScan() {
   });
 
   try {
-    await state.registerScanner.start();
+    await state.registerScanner.startCamera();
+    setRegisterStatus(
+      "loading",
+      "Validando rostro vivo",
+      "Parpadeo, giro de cabeza y anti-spoofing antes del perfil",
+    );
+    const liveness = await runRegisterLivenessChallenge();
+    if (!liveness?.passed) {
+      const msg =
+        liveness?.message ||
+        "No se valido que seas una persona real. No uses fotos ni pantallas.";
+      setRegisterStatus("error", "Rostro no validado", msg);
+      showToast(msg, 8000, "error");
+      stopRegisterScanner();
+      return;
+    }
+    setRegisterStatus(
+      "success",
+      "Rostro vivo validado",
+      "Ahora capturaremos frontal, izquierda y derecha para tu perfil.",
+    );
+    showToast("Prueba de vida superada. Continua con las 3 poses.", 4000, "success");
+    speak("Rostro validado. Ahora las tres poses del registro.");
+    await sleep(600);
+    await state.registerScanner.beginPoseScan();
   } catch (error) {
     const message = error?.message || "Revisa permisos de camara.";
     setRegisterStatus("error", "No se pudo escanear", message);
@@ -2748,6 +2772,85 @@ async function captureCameraBurst(count = 2, intervalMs = 180) {
     if (index < count - 1) await sleep(intervalMs);
   }
   return lastBlob;
+}
+
+async function captureRegisterCameraFrame() {
+  const video = registerCameraPreview;
+  if (!video?.videoWidth || !video?.videoHeight) {
+    return null;
+  }
+  const maxWidth = 960;
+  const scale = Math.min(1, maxWidth / video.videoWidth);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(video.videoWidth * scale);
+  canvas.height = Math.round(video.videoHeight * scale);
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.translate(canvas.width, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), "image/jpeg", CAMERA_FRAME_QUALITY);
+  });
+}
+
+async function captureRegisterLivenessStep(step) {
+  const timing = LIVENESS_STEP_TIMING[step.type] || LIVENESS_STEP_TIMING.front;
+  const spokenIntro = speechForLivenessStep(step.type) || step.prompt;
+  setRegisterStatus("loading", step.prompt, "Preparate, la captura es automatica...");
+  if (registerScanHint) registerScanHint.textContent = step.prompt;
+  speak(spokenIntro);
+  await sleep(timing.prepMs);
+  await countdownWithActionCue(timing.countdownSec, timing.actionCue);
+  if (timing.actionCue) {
+    await sleep(LIVENESS_ACTION_HOLD_MS);
+  }
+  if (registerScanHint) registerScanHint.textContent = "Capturando...";
+  if (timing.burst) {
+    return captureRegisterCameraBurst(2, LIVENESS_BURST_INTERVAL_MS);
+  }
+  await sleep(250);
+  return captureRegisterCameraFrame();
+}
+
+async function captureRegisterCameraBurst(count = 2, intervalMs = 180) {
+  let lastBlob = null;
+  for (let index = 0; index < count; index += 1) {
+    const blob = await captureRegisterCameraFrame();
+    if (blob) lastBlob = blob;
+    if (index < count - 1) await sleep(intervalMs);
+  }
+  return lastBlob;
+}
+
+async function runRegisterLivenessChallenge() {
+  const challenge = await requestJson("/api/v1/faces/liveness/challenge");
+  const form = new FormData();
+  form.append("challenge_id", challenge.challenge_id || "");
+
+  for (let index = 0; index < challenge.steps.length; index += 1) {
+    const step = challenge.steps[index];
+    setRegisterStatus(
+      "loading",
+      `Prueba de vida ${index + 1}/${challenge.steps.length}`,
+      step.prompt,
+    );
+    const blob = await captureRegisterLivenessStep(step);
+    if (!blob) {
+      throw new Error("La camara no capturo imagen. Espera un momento e intenta de nuevo.");
+    }
+    form.append(step.form_field, blob, `${step.form_field}.jpg`);
+    await sleep(250);
+  }
+
+  setRegisterStatus("loading", "Validando rostro real...", "Anti-spoofing en el servidor...");
+  if (registerScanHint) registerScanHint.textContent = "Validando rostro real...";
+  speak(SPEECH_PHRASES.validate);
+  return requestForm("/api/v1/faces/liveness/verify", form, {
+    silent: true,
+    timeoutMs: 300_000,
+  });
 }
 
 async function runLivenessChallenge() {

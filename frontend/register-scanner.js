@@ -189,6 +189,11 @@
       this.onStatus("loading", "Preparando escaneo...", "Solicitando camara y modelos de IA");
 
       await this.startCamera();
+      await this.beginPoseScan();
+    }
+
+    async beginPoseScan() {
+      if (this.running) return;
 
       try {
         this.onStatus("loading", "Cargando IA...", "Descargando MediaPipe (primera vez tarda unos segundos)");

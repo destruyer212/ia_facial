@@ -5,6 +5,7 @@ import 'api/face_api_client.dart';
 import 'config/api_config.dart';
 import 'screens/confirmation_screen.dart';
 import 'screens/face_capture_screen.dart';
+import 'screens/liveness_challenge_screen.dart';
 import 'screens/token_screen.dart';
 import 'screens/worker_data_screen.dart';
 import 'theme/app_theme.dart';
@@ -50,7 +51,7 @@ class TokenRegistrationFlow extends StatefulWidget {
   State<TokenRegistrationFlow> createState() => _TokenRegistrationFlowState();
 }
 
-enum _RegistrationStep { token, workerData, capture, confirmation }
+enum _RegistrationStep { token, workerData, liveness, capture, confirmation }
 
 class _TokenRegistrationFlowState extends State<TokenRegistrationFlow> {
   static const _defaultBaseUrl = kProductionApiBaseUrl;
@@ -96,6 +97,15 @@ class _TokenRegistrationFlowState extends State<TokenRegistrationFlow> {
             _step = _RegistrationStep.confirmation;
           });
         },
+        onBack: () => setState(() => _step = _RegistrationStep.liveness),
+      );
+    }
+
+    if (_step == _RegistrationStep.liveness && _worker != null) {
+      return LivenessChallengeScreen(
+        apiClient: _apiClient,
+        workerName: _worker!['name'] as String? ?? 'Trabajador',
+        onPassed: () => setState(() => _step = _RegistrationStep.capture),
         onBack: () => setState(() => _step = _RegistrationStep.workerData),
       );
     }
@@ -103,7 +113,7 @@ class _TokenRegistrationFlowState extends State<TokenRegistrationFlow> {
     if (_step == _RegistrationStep.workerData && _worker != null) {
       return WorkerDataScreen(
         worker: _worker!,
-        onContinue: () => setState(() => _step = _RegistrationStep.capture),
+        onContinue: () => setState(() => _step = _RegistrationStep.liveness),
         onBack: _restart,
       );
     }

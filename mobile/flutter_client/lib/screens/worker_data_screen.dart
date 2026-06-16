@@ -30,7 +30,7 @@ class WorkerDataScreen extends StatelessWidget {
         children: [
           const BrandHeader(
             title: 'Confirma tus datos',
-            subtitle: 'Verifica que la informacion de RRHH sea correcta antes del escaneo facial.',
+            subtitle: 'Verifica tus datos. Luego haras prueba de vida y escaneo facial.',
           ),
           const SizedBox(height: 20),
           Expanded(

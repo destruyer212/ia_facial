@@ -116,6 +116,54 @@ class FaceApiClient {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> getLivenessChallenge() async {
+    final uri = Uri.parse('$baseUrl/api/v1/faces/liveness/challenge');
+    final response = await http.get(uri).timeout(timeout);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FaceApiException(
+        statusCode: response.statusCode,
+        body: response.body,
+      );
+    }
+
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> verifyLiveness({
+    required String? challengeId,
+    required Map<String, File> stepFiles,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/faces/liveness/verify');
+    final request = http.MultipartRequest('POST', uri);
+    if (challengeId != null && challengeId.trim().isNotEmpty) {
+      request.fields['challenge_id'] = challengeId.trim();
+    }
+    for (final entry in stepFiles.entries) {
+      request.files.add(
+        await jpegMultipartFile(
+          field: entry.key,
+          file: entry.value,
+          filename: '${entry.key}.jpg',
+        ),
+      );
+    }
+
+    final streamed = await request.send().timeout(profileUploadTimeout);
+    final response = await http.Response.fromStream(streamed).timeout(
+      profileUploadTimeout,
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FaceApiException(
+        statusCode: response.statusCode,
+        body: response.body,
+      );
+    }
+
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> registerMobileFaceProfile({
     required String token,
     required File frontFile,
