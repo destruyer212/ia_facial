@@ -49,7 +49,7 @@ const state = {
   refreshTimer: null,
 };
 
-const DEFAULT_API_BASE = "https://ia-facial.onrender.com";
+const DEFAULT_API_BASE = "http://104.238.215.26";
 const apiBaseInput = document.querySelector("#api-base");
 
 function initApiBaseDefault() {
@@ -58,7 +58,8 @@ function initApiBaseDefault() {
   if (
     !current ||
     current === "http://127.0.0.1:8000" ||
-    current === "http://localhost:8000"
+    current === "http://localhost:8000" ||
+    current.includes("onrender.com")
   ) {
     apiBaseInput.value = DEFAULT_API_BASE;
   }
@@ -3061,6 +3062,9 @@ async function captureCameraFrame() {
   const ctx = cameraCanvas.getContext("2d");
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
+  // Espejo horizontal: misma orientacion que el preview y el registro facial.
+  ctx.translate(cameraCanvas.width, 0);
+  ctx.scale(-1, 1);
   ctx.drawImage(cameraPreview, 0, 0, cameraCanvas.width, cameraCanvas.height);
 
   return new Promise((resolve) => {

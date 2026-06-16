@@ -1,13 +1,22 @@
+import 'dart:convert';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../api/face_api_client.dart';
-import '../controllers/live_face_register_controller.dart';
+import '../biometric/controllers/biometric_scan_controller.dart';
+import '../biometric/models/biometric_scan_phase.dart';
+import '../biometric/models/biometric_ui_state.dart';
+import '../biometric/widgets/biometric_overlay.dart';
+import '../biometric/widgets/capture_transition_layer.dart';
+import '../biometric/widgets/quality_warning_chip.dart';
+import '../biometric/widgets/scan_hint_panel.dart';
+import '../biometric/widgets/scan_progress_bar.dart';
 import '../models/register_scan_step.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
-import '../widgets/face_scan_overlay.dart';
+import '../biometric/widgets/upload_progress_panel.dart';
 
 class FaceCaptureScreen extends StatefulWidget {
   const FaceCaptureScreen({
@@ -29,57 +38,138 @@ class FaceCaptureScreen extends StatefulWidget {
   State<FaceCaptureScreen> createState() => _FaceCaptureScreenState();
 }
 
-class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
-  late final LiveFaceRegisterController _scanner;
+class _FaceCaptureScreenState extends State<FaceCaptureScreen>
+    with WidgetsBindingObserver {
+  late final BiometricScanController _scanner;
   bool _submitting = false;
+  bool _showUploadPanel = false;
+  int _uploadAttempt = 0;
 
   @override
   void initState() {
     super.initState();
-    _scanner = LiveFaceRegisterController();
-    _scanner.addListener(_onScannerChanged);
+    WidgetsBinding.instance.addObserver(this);
+    _scanner = BiometricScanController();
+    _scanner.uiState.addListener(_onUiChanged);
     _scanner.initialize();
+    _warmUpBackendInBackground();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncDeviceOrientation());
   }
 
-  void _onScannerChanged() {
-    if (_scanner.phase == ScanPhase.done && mounted && !_submitting) {
-      _submitCaptures();
+  @override
+  void didChangeMetrics() {
+    _syncDeviceOrientation();
+  }
+
+  void _syncDeviceOrientation() {
+    if (!mounted) return;
+    final orientation = MediaQuery.orientationOf(context);
+    _scanner.updateDeviceOrientation(
+      orientation == Orientation.landscape
+          ? DeviceOrientation.landscapeLeft
+          : DeviceOrientation.portraitUp,
+    );
+  }
+
+  void _warmUpBackendInBackground() {
+    Future<void>(() async {
+      await widget.apiClient.wakeUpServer();
+      await widget.apiClient.warmAiModels();
+    });
+  }
+
+  void _onUiChanged() {
+    final phase = _scanner.phase;
+    if (phase == BiometricScanPhase.done && mounted && !_submitting) {
+      _beginUploadAfterScan();
     }
+  }
+
+  Future<void> _beginUploadAfterScan() async {
+    await _scanner.releaseCamera();
+    if (!mounted) return;
     setState(() {});
+    await _submitCaptures();
   }
 
   Future<void> _submitCaptures() async {
     if (_submitting) return;
-    _submitting = true;
     final front = _scanner.captures['front'];
     final left = _scanner.captures['left'];
     final right = _scanner.captures['right'];
     if (front == null || left == null || right == null) return;
 
-    _scanner.markSubmitting();
-    try {
-      final result = await widget.apiClient.registerMobileFaceProfile(
-        token: widget.token,
-        frontFile: front,
-        leftFile: left,
-        rightFile: right,
-      );
-      if (mounted) widget.onCompleted(result);
-    } on FaceApiException catch (error) {
-      _scanner.phase = ScanPhase.error;
-      _scanner.errorMessage = error.body;
-      _scanner.statusHint = error.body;
-    } catch (error) {
-      _scanner.phase = ScanPhase.error;
-      _scanner.errorMessage = 'No se pudo registrar el rostro: $error';
-      _scanner.statusHint = _scanner.errorMessage ?? 'Error de registro';
+    _submitting = true;
+    _uploadAttempt++;
+    _scanner.markSubmitting(
+      title: 'Guardando perfil',
+      hint: 'Subiendo capturas al servidor...',
+    );
+    if (mounted) {
+      setState(() => _showUploadPanel = true);
     }
+  }
+
+  void _onUploadSuccess(Map<String, dynamic> result) {
+    _submitting = false;
+    _showUploadPanel = false;
+    widget.onCompleted(result);
+  }
+
+  void _onUploadError(String raw) {
+    _submitting = false;
+    _showUploadPanel = false;
+    _scanner.setExternalError(_humanizeApiError(raw));
     if (mounted) setState(() {});
+  }
+
+  bool get _hasAllCaptures {
+    final c = _scanner.captures;
+    return c.containsKey('front') &&
+        c.containsKey('left') &&
+        c.containsKey('right');
+  }
+
+  Future<void> _retryUploadOnly() async {
+    if (!_hasAllCaptures) {
+      _submitting = false;
+      _showUploadPanel = false;
+      await _scanner.resetAndRestart();
+      return;
+    }
+    await _submitCaptures();
+  }
+
+  String _humanizeApiError(String body) {
+    final text = body.trim();
+    if (text.contains('TimeoutException') || text.contains('timed out')) {
+      return 'El servidor tardo mas de lo esperado.\n\n'
+          '1. Pulsa "Reintentar envio" (no vuelvas a escanear).\n'
+          '2. Espera 2-5 min con buena WiFi.\n'
+          '3. Instala la app v1.2.0+3 (timeout 10 min).';
+    }
+    if (text.contains('SocketException') ||
+        text.contains('Failed host lookup') ||
+        text.contains('Connection refused')) {
+      return 'Sin conexion al servidor. Revisa tu internet o la URL del backend.';
+    }
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is Map && decoded['detail'] != null) {
+        final detail = decoded['detail'].toString();
+        if (detail.contains('Formato no soportado')) {
+          return 'Formato de imagen no valido. Actualiza la app e intenta de nuevo.';
+        }
+        return detail.replaceFirst('Error registrando rostro movil: 400: ', '');
+      }
+    } catch (_) {}
+    return text;
   }
 
   @override
   void dispose() {
-    _scanner.removeListener(_onScannerChanged);
+    WidgetsBinding.instance.removeObserver(this);
+    _scanner.uiState.removeListener(_onUiChanged);
     _scanner.dispose();
     super.dispose();
   }
@@ -87,62 +177,77 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
   @override
   Widget build(BuildContext context) {
     final name = widget.worker['name'] as String? ?? 'Trabajador';
-    final camera = _scanner.cameraController;
-    final showErrorButton = _scanner.phase == ScanPhase.error;
-    final bottomReserved = AppResponsive.scanBottomReserved(
-      context,
-      showErrorButton: showErrorButton,
-    );
-    final topReserved = AppResponsive.scanTopReserved(context);
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
         backgroundColor: AppColors.background,
         resizeToAvoidBottomInset: false,
-        body: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (camera != null && camera.value.isInitialized)
-              _buildCameraPreview(camera)
-            else
-              const ColoredBox(
-                color: AppColors.background,
-                child: Center(
-                  child: CircularProgressIndicator(color: AppColors.accent),
-                ),
-              ),
-            if (camera != null && camera.value.isInitialized)
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final canvasSize = Size(constraints.maxWidth, constraints.maxHeight);
-                  final geometry = GuideCircleGeometry(
-                    size: canvasSize,
-                    topReserved: topReserved,
-                    bottomReserved: bottomReserved,
-                  );
-                  _scanner.updateScanTargets(
-                    canvas: canvasSize,
-                    center: geometry.center,
-                    radius: geometry.radius,
-                  );
+        body: ValueListenableBuilder(
+          valueListenable: _scanner.uiState,
+          builder: (context, ui, _) {
+            final camera = _scanner.cameraController;
+            final showErrorButton = ui.phase == BiometricScanPhase.error;
+            final showCamera = camera != null &&
+                camera.value.isInitialized &&
+                (ui.phase == BiometricScanPhase.loading ||
+                    ui.phase == BiometricScanPhase.scanning ||
+                    ui.phase == BiometricScanPhase.capturing);
+            final postScan = ui.phase == BiometricScanPhase.done ||
+                ui.phase == BiometricScanPhase.submitting ||
+                (ui.phase == BiometricScanPhase.error && _hasAllCaptures);
+            final bottomReserved = AppResponsive.scanBottomReserved(
+              context,
+              showErrorButton: showErrorButton,
+            );
+            final topReserved = AppResponsive.scanTopReserved(context);
+            final step = registerScanSteps[ui.stepIndex];
+            final stepLabel =
+                'Paso ${ui.stepIndex + 1}/${registerScanSteps.length}';
 
-                  return FaceScanOverlay(
-                    metrics: _scanner.latestMetrics,
-                    canvasSize: canvasSize,
-                    imageSize: _scanner.imageSize,
-                    rotation: _scanner.imageRotation,
-                    lensDirection: camera.description.lensDirection,
-                    aligned: _scanner.aligned,
-                    poseOk: _scanner.poseOk,
-                    stepIndex: _scanner.stepIndex,
-                    topReserved: topReserved,
-                    bottomReserved: bottomReserved,
-                  );
-                },
-              ),
-            _buildChrome(name, showErrorButton),
-          ],
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                if (showCamera)
+                  _buildCameraPreview(camera)
+                else if (postScan)
+                  _buildPostScanBackdrop(ui)
+                else
+                  const ColoredBox(
+                    color: AppColors.background,
+                    child: Center(
+                      child: CircularProgressIndicator(color: AppColors.accent),
+                    ),
+                  ),
+                if (showCamera)
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final canvasSize = Size(
+                        constraints.maxWidth,
+                        constraints.maxHeight,
+                      );
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        _scanner.updateLayout(
+                          canvas: canvasSize,
+                          topReserved: topReserved,
+                          bottomReserved: bottomReserved,
+                        );
+                      });
+                      return BiometricOverlay(controller: _scanner);
+                    },
+                  ),
+                if (showCamera) CaptureTransitionLayer(controller: _scanner),
+                _buildChrome(
+                  name: name,
+                  ui: ui,
+                  step: step,
+                  stepLabel: stepLabel,
+                  showErrorButton: showErrorButton,
+                  postScan: postScan,
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -159,21 +264,66 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
     );
   }
 
-  Widget _buildChrome(String name, bool showErrorButton) {
-    final step = registerScanSteps[_scanner.stepIndex];
-    final stepLabel =
-        'Paso ${_scanner.stepIndex + 1}/${registerScanSteps.length}: ${step.label}';
+  Widget _buildPostScanBackdrop(BiometricUiState ui) {
+    final isUploading = ui.phase == BiometricScanPhase.submitting;
+    return ColoredBox(
+      color: AppColors.background,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isUploading ? Icons.cloud_upload_outlined : Icons.verified_outlined,
+              size: 72,
+              color: isUploading ? AppColors.accent : AppColors.success,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              isUploading ? 'Subiendo perfil' : 'Escaneo completo',
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              isUploading
+                  ? 'Procesando en el servidor...'
+                  : '3 fotos capturadas correctamente',
+              style: TextStyle(
+                color: AppColors.textMuted.withValues(alpha: 0.95),
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChrome({
+    required String name,
+    required BiometricUiState ui,
+    required RegisterScanStep step,
+    required String stepLabel,
+    required bool showErrorButton,
+    required bool postScan,
+  }) {
     final horizontal = AppResponsive.horizontalPadding(context);
+    final title = ui.statusTitle;
 
     return SafeArea(
       child: Column(
         children: [
           Padding(
-            padding: EdgeInsets.fromLTRB(4, 4, 4, 0),
+            padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
             child: Row(
               children: [
                 IconButton(
-                  onPressed: _scanner.phase == ScanPhase.submitting ? null : widget.onBack,
+                  onPressed: ui.phase == BiometricScanPhase.submitting
+                      ? null
+                      : widget.onBack,
                   icon: const Icon(Icons.arrow_back, color: Colors.white),
                 ),
                 Expanded(
@@ -190,9 +340,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
                         ),
                       ),
                       Text(
-                        'Registro facial automatico',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        'Verificacion biometrica',
                         style: TextStyle(
                           color: AppColors.textMuted.withValues(alpha: 0.9),
                           fontSize: 12,
@@ -205,6 +353,11 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
               ],
             ),
           ),
+          if (ui.warningHint != null)
+            Padding(
+              padding: EdgeInsets.fromLTRB(horizontal, 8, horizontal, 0),
+              child: QualityWarningChip(message: ui.warningHint!),
+            ),
           const Spacer(),
           ConstrainedBox(
             constraints: BoxConstraints(
@@ -215,30 +368,61 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  ScanStepChips(
-                    stepIndex: _scanner.stepIndex,
-                    captures: _scanner.captures,
+                  ScanProgressBar(
+                    stepIndex: ui.stepIndex,
+                    captures: ui.captures,
                   ),
-                  const SizedBox(height: 12),
-                  ScanStatusCard(
-                    title: _scanner.statusTitle,
-                    hint: _scanner.errorMessage ?? _scanner.statusHint,
-                    stepLabel: stepLabel,
+                  const SizedBox(height: 14),
+                  ScanHintPanel(
+                    stepLabel: postScan && ui.phase != BiometricScanPhase.error
+                        ? 'Completado'
+                        : stepLabel,
+                    title: title,
+                    hint: ui.errorMessage ?? ui.statusHint,
+                    stabilityProgress: ui.stabilityProgress,
+                    transitionKey: '${ui.stepIndex}-${ui.phase.name}',
                   ),
                   if (showErrorButton) ...[
                     const SizedBox(height: 12),
+                    if (_hasAllCaptures)
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed: _submitting ? null : _retryUploadOnly,
+                          child: const Text('Reintentar envio'),
+                        ),
+                      ),
+                    if (_hasAllCaptures) const SizedBox(height: 8),
                     SizedBox(
                       width: double.infinity,
-                      child: FilledButton(
-                        onPressed: () {
-                          _submitting = false;
-                          _scanner.resetAndRestart();
-                        },
-                        child: const Text('Reintentar escaneo'),
+                      child: OutlinedButton(
+                        onPressed: _submitting
+                            ? null
+                            : () {
+                                _submitting = false;
+                                _showUploadPanel = false;
+                                _scanner.resetAndRestart();
+                              },
+                        child: Text(
+                          _hasAllCaptures
+                              ? 'Volver a escanear'
+                              : 'Reintentar escaneo',
+                        ),
                       ),
                     ),
                   ],
-                  if (_scanner.phase == ScanPhase.submitting) ...[
+                  if (_showUploadPanel && _hasAllCaptures) ...[
+                    UploadProgressPanel(
+                      key: ValueKey('upload-$_uploadAttempt'),
+                      apiClient: widget.apiClient,
+                      token: widget.token,
+                      frontFile: _scanner.captures['front']!,
+                      leftFile: _scanner.captures['left']!,
+                      rightFile: _scanner.captures['right']!,
+                      onSuccess: _onUploadSuccess,
+                      onError: _onUploadError,
+                    ),
+                  ] else if (ui.phase == BiometricScanPhase.submitting) ...[
                     const SizedBox(height: 16),
                     const LinearProgressIndicator(
                       color: AppColors.accent,

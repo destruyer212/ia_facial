@@ -55,7 +55,10 @@ enum _RegistrationStep { token, workerData, capture, confirmation }
 class _TokenRegistrationFlowState extends State<TokenRegistrationFlow> {
   static const _defaultBaseUrl = kProductionApiBaseUrl;
 
-  late FaceApiClient _apiClient = FaceApiClient(baseUrl: _defaultBaseUrl);
+  late FaceApiClient _apiClient = FaceApiClient(
+    baseUrl: _defaultBaseUrl,
+    profileUploadTimeout: const Duration(minutes: 10),
+  );
   String _baseUrl = _defaultBaseUrl;
   _RegistrationStep _step = _RegistrationStep.token;
   String? _token;
@@ -110,7 +113,10 @@ class _TokenRegistrationFlowState extends State<TokenRegistrationFlow> {
       onBaseUrlChanged: (value) {
         setState(() {
           _baseUrl = value.trim();
-          _apiClient = FaceApiClient(baseUrl: _baseUrl);
+          _apiClient = FaceApiClient(
+            baseUrl: _baseUrl,
+            profileUploadTimeout: const Duration(minutes: 10),
+          );
         });
       },
       onValidated: (token, worker) {

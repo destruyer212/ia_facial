@@ -3,12 +3,53 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../utils/multipart_image.dart';
+
 class FaceApiClient {
-  FaceApiClient({required this.baseUrl, Duration? timeout})
-      : timeout = timeout ?? const Duration(seconds: 90);
+  FaceApiClient({
+    required this.baseUrl,
+    Duration? timeout,
+    Duration? profileUploadTimeout,
+  })  : timeout = timeout ?? const Duration(seconds: 90),
+        profileUploadTimeout =
+            profileUploadTimeout ?? const Duration(minutes: 10);
 
   final String baseUrl;
   final Duration timeout;
+  /// Registro movil: 3 fotos + DeepFace en Render (hasta 10 min).
+  final Duration profileUploadTimeout;
+
+  /// Despierta Render con reintentos cortos (no bloquear minutos).
+  Future<bool> wakeUpServer({int maxAttempts = 6}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/health');
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        final response = await http
+            .get(uri)
+            .timeout(const Duration(seconds: 25));
+        if (response.statusCode == 200) return true;
+      } catch (_) {
+        // Render cold start: reintentar.
+      }
+      if (attempt < maxAttempts - 1) {
+        await Future<void>.delayed(const Duration(seconds: 2));
+      }
+    }
+    return false;
+  }
+
+  /// Precarga IA en segundo plano (no bloquea el envio).
+  Future<bool> warmAiModels({Duration? maxWait}) async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/v1/health/ai');
+      final response = await http
+          .get(uri)
+          .timeout(maxWait ?? const Duration(minutes: 3));
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
 
   Future<Map<String, dynamic>> identifyFace(File imageFile) async {
     final uri = Uri.parse('$baseUrl/api/v1/faces/identify');
@@ -84,12 +125,16 @@ class FaceApiClient {
     final uri = Uri.parse('$baseUrl/api/v1/mobile/faces/register-profile');
     final request = http.MultipartRequest('POST', uri)
       ..fields['token'] = token.trim()
-      ..files.add(await http.MultipartFile.fromPath('front', frontFile.path))
-      ..files.add(await http.MultipartFile.fromPath('left', leftFile.path))
-      ..files.add(await http.MultipartFile.fromPath('right', rightFile.path));
+      ..files.addAll([
+        await jpegMultipartFile(field: 'front', file: frontFile, filename: 'front.jpg'),
+        await jpegMultipartFile(field: 'left', file: leftFile, filename: 'left.jpg'),
+        await jpegMultipartFile(field: 'right', file: rightFile, filename: 'right.jpg'),
+      ]);
 
-    final streamed = await request.send().timeout(timeout);
-    final response = await http.Response.fromStream(streamed);
+    final streamed = await request.send().timeout(profileUploadTimeout);
+    final response = await http.Response.fromStream(streamed).timeout(
+      profileUploadTimeout,
+    );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw FaceApiException(

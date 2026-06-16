@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -38,10 +39,24 @@ async def mobile_register_face_profile(
     poses_saved: list[str] = []
     image_url: str | None = None
     try:
+        pose_files: list[tuple[str, Path]] = []
         for pose_type, upload in uploads.items():
             image_path = await _persist_upload(upload)
             temp_paths.append(image_path)
-            embedding = face_ai_service.create_embedding(image_path)
+            pose_files.append((pose_type, image_path))
+
+        async def _embed_pose(pose_type: str, image_path: Path) -> tuple[str, Path, list[float]]:
+            embedding = await asyncio.to_thread(
+                face_ai_service.create_embedding,
+                image_path,
+            )
+            return pose_type, image_path, embedding
+
+        embedded = await asyncio.gather(
+            *[_embed_pose(pose_type, image_path) for pose_type, image_path in pose_files]
+        )
+
+        for pose_type, image_path, embedding in embedded:
             stored = embedding_store.save_embedding(
                 person_id=person_id,
                 name=worker["name"],

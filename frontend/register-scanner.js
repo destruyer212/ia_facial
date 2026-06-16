@@ -10,7 +10,7 @@
       label: "Frontal",
       prompt: "Mira de frente al centro del circulo",
       speech: "Mira de frente al centro del circulo.",
-      matchYaw: (yaw) => Math.abs(yaw) <= 0.09,
+      matchYaw: (yaw) => Math.abs(yaw) <= 0.14,
     },
     {
       id: "left",
@@ -18,7 +18,7 @@
       label: "Giro izquierda",
       prompt: "Gira la cabeza hacia tu izquierda",
       speech: "Gira la cabeza hacia tu izquierda.",
-      matchYaw: (yaw) => yaw <= -0.11,
+      matchYaw: (yaw) => yaw <= -0.08,
     },
     {
       id: "right",
@@ -26,9 +26,17 @@
       label: "Giro derecha",
       prompt: "Gira la cabeza hacia tu derecha",
       speech: "Gira la cabeza hacia tu derecha.",
-      matchYaw: (yaw) => yaw >= 0.11,
+      matchYaw: (yaw) => yaw >= 0.08,
     },
   ];
+
+  const SCAN_TUNING = {
+    requiredStableFrames: 4,
+    centerToleranceRatio: 0.17,
+    minFaceSizeRatio: 0.18,
+    maxFaceSizeRatio: 0.72,
+    mirrorWebcam: true,
+  };
 
   const MESH_POINT_COLOR = "#38bdf8";
   const MESH_GLOW_COLOR = "rgba(56, 189, 248, 0.45)";
@@ -133,7 +141,10 @@
       ctx.clearRect(0, 0, width, height);
       const landmarks = results.faceLandmarks?.[0];
       if (landmarks?.length) {
-        drawFaceMesh(ctx, landmarks, width, height);
+        const points = SCAN_TUNING.mirrorWebcam
+          ? landmarks.map((point) => ({ x: 1 - point.x, y: point.y }))
+          : landmarks;
+        drawFaceMesh(ctx, points, width, height);
       }
       this.loop();
     }
@@ -163,7 +174,7 @@
       this.captures = {};
       this.stepIndex = 0;
       this.stableFrames = 0;
-      this.requiredStableFrames = 14;
+      this.requiredStableFrames = SCAN_TUNING.requiredStableFrames;
       this.capturing = false;
       this.fallbackMode = false;
       this.apiBase = options.apiBase || "";
@@ -344,8 +355,9 @@
         const data = await response.json();
         if (!data.face_count || !data.faces?.length) return null;
         const face = data.faces[0];
-        const centerX = face.x + face.width / 2;
+        let centerX = face.x + face.width / 2;
         const centerY = face.y + face.height / 2;
+        centerX = this.mirrorX(centerX, width);
         return {
           centerX,
           centerY,
@@ -379,8 +391,8 @@
 
       if (aligned && poseOk) {
         this.stableFrames += 1;
-        this.updateHint(`Mantente quieto... ${Math.max(0, this.requiredStableFrames - this.stableFrames)}`);
         if (this.stableFrames >= this.requiredStableFrames && !this.capturing) {
+          this.updateHint("Capturando...");
           this.captureCurrentStep().catch((error) => {
             this.capturing = false;
             this.onStatus("error", "Error al capturar", error.message);
@@ -403,7 +415,7 @@
       const maxX = Math.max(...xs);
       const minY = Math.min(...ys);
       const maxY = Math.max(...ys);
-      const centerX = (minX + maxX) / 2;
+      const centerX = this.mirrorX((minX + maxX) / 2, width);
       const centerY = (minY + maxY) / 2;
       const faceWidth = maxX - minX;
 
@@ -429,13 +441,30 @@
     isFaceAligned(metrics) {
       const dx = Math.abs(metrics.centerX - metrics.frameCenterX);
       const dy = Math.abs(metrics.centerY - metrics.frameCenterY);
-      const centerTolerance = metrics.frameSize * 0.11;
+      const centerTolerance = metrics.frameSize * SCAN_TUNING.centerToleranceRatio;
       const sizeRatio = metrics.faceWidth / metrics.frameSize;
-      return dx <= centerTolerance && dy <= centerTolerance && sizeRatio >= 0.28 && sizeRatio <= 0.62;
+      return (
+        dx <= centerTolerance &&
+        dy <= centerTolerance &&
+        sizeRatio >= SCAN_TUNING.minFaceSizeRatio &&
+        sizeRatio <= SCAN_TUNING.maxFaceSizeRatio
+      );
+    }
+
+    mirrorX(x, width) {
+      return SCAN_TUNING.mirrorWebcam ? width - x : x;
     }
 
     drawMesh(ctx, landmarks, width, height) {
-      drawFaceMesh(ctx, landmarks, width, height);
+      if (!SCAN_TUNING.mirrorWebcam) {
+        drawFaceMesh(ctx, landmarks, width, height);
+        return;
+      }
+      const mirrored = landmarks.map((point) => ({
+        x: 1 - point.x,
+        y: point.y,
+      }));
+      drawFaceMesh(ctx, mirrored, width, height);
     }
 
     async captureCurrentStep() {
@@ -474,6 +503,10 @@
       temp.width = this.video.videoWidth;
       temp.height = this.video.videoHeight;
       const ctx = temp.getContext("2d");
+      if (SCAN_TUNING.mirrorWebcam) {
+        ctx.translate(temp.width, 0);
+        ctx.scale(-1, 1);
+      }
       ctx.drawImage(this.video, 0, 0, temp.width, temp.height);
       return new Promise((resolve) => {
         temp.toBlob((blob) => resolve(blob), "image/jpeg", 0.92);

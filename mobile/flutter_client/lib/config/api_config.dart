@@ -1,5 +1,5 @@
-/// URL del backend en produccion (Render).
-const String kProductionApiBaseUrl = 'https://ia-facial.onrender.com';
+/// Backend en VPS Kamatera (produccion).
+const String kProductionApiBaseUrl = 'http://104.238.215.26';
 
-/// Solo para emulador Android apuntando a uvicorn local en el PC.
+/// Solo emulador Android apuntando a uvicorn local en el PC.
 const String kLocalEmulatorApiBaseUrl = 'http://10.0.2.2:8000';

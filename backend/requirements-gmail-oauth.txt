@@ -1,0 +1,4 @@
+# Dependencias solo para generar token.json en tu PC (una vez):
+#   pip install google-auth-oauthlib google-auth-httplib2
+google-auth-oauthlib>=1.2.0
+google-auth-httplib2>=0.2.0

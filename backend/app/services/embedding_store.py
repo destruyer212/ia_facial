@@ -417,9 +417,7 @@ class SupabaseEmbeddingStore:
                         distance=round(float(row[3]), 6),
                         confidence=round(float(row[4]), 6),
                     )
-                return self._find_nearest_candidate_fallback(
-                    cur, org_id=org_id, model=model, embedding_literal=embedding_literal
-                )
+                return None
 
     def find_nearest_candidate(
         self,

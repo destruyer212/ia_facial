@@ -30,6 +30,7 @@ from app.services.incident_store import get_incident_store
 from app.services.liveness_service import LivenessService
 from app.services.supabase_db import get_conn, resolve_org_id, save_face_asset
 from app.services.face_ai_service import FaceAIService
+from app.services.face_match_service import match_face_from_image
 from app.services.opencv_service import OpenCVService
 from app.services.r2_storage_service import R2StorageService
 from app.services.schedule_service import get_schedule_service
@@ -295,25 +296,7 @@ async def verify_liveness(
 async def identify_face(file: UploadFile = File(...)) -> IdentifyFaceResponse:
     image_path = await _persist_upload(file)
     try:
-        embedding = face_ai_service.create_embedding(image_path)
-        scan_threshold = get_runtime_scan_threshold()
-        match = embedding_store.find_best_match(
-            embedding=embedding,
-            threshold=scan_threshold,
-            model=settings.active_face_model,
-        )
-        near_miss = None
-        if match is None:
-            near_miss = embedding_store.find_nearest_candidate(
-                embedding=embedding,
-                model=settings.active_face_model,
-            )
-        return IdentifyFaceResponse(
-            matched=match is not None,
-            threshold=scan_threshold,
-            candidate=match,
-            near_miss=near_miss,
-        )
+        return match_face_from_image(image_path)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
@@ -610,10 +593,3 @@ def _build_r2_object_key(person_id: str, suffix: str, pose_type: str = "front") 
     )
 
 
-def get_runtime_scan_threshold() -> float:
-    try:
-        from app.services.admin_service import get_admin_service
-
-        return get_admin_service().get_system_settings().face_scan_match_threshold
-    except Exception:
-        return settings.face_scan_match_threshold
