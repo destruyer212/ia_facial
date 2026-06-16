@@ -11,7 +11,7 @@
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=2026061103" />
+    <link rel="stylesheet" href="./styles.css?v=2026061104" />
   </head>
   <body>
     <aside class="sidebar">
@@ -704,8 +704,10 @@
 
             <div class="register-camera-side">
               <div class="register-camera-wrap">
-                <video id="register-camera-preview" class="register-camera-preview" autoplay muted playsinline></video>
-                <canvas id="register-camera-mesh" class="register-camera-mesh"></canvas>
+                <div class="camera-mirror-layer" aria-hidden="true">
+                  <video id="register-camera-preview" class="register-camera-preview" autoplay muted playsinline></video>
+                  <canvas id="register-camera-mesh" class="register-camera-mesh"></canvas>
+                </div>
                 <div id="register-face-circle" class="register-face-circle" aria-hidden="true"></div>
                 <div class="register-scan-line" aria-hidden="true"></div>
               </div>
@@ -889,8 +891,10 @@
 
             <div class="scan-camera-column">
               <div class="camera-preview-wrap">
-                <video id="face-camera-preview" class="camera-preview" autoplay muted playsinline></video>
-                <canvas id="scan-camera-mesh" class="scan-camera-mesh"></canvas>
+                <div class="camera-mirror-layer" aria-hidden="true">
+                  <video id="face-camera-preview" class="camera-preview" autoplay muted playsinline></video>
+                  <canvas id="scan-camera-mesh" class="scan-camera-mesh"></canvas>
+                </div>
                 <div class="camera-frame-corner tl"></div>
                 <div class="camera-frame-corner tr"></div>
                 <div class="camera-frame-corner bl"></div>
@@ -1128,7 +1132,7 @@
       window.__IA_FACIAL_BUILD = "2026061101";
       console.info("[IA Facial] build", window.__IA_FACIAL_BUILD);
     </script>
-    <script src="./register-scanner.js?v=2026061103"></script>
+    <script src="./register-scanner.js?v=2026061104"></script>
     <script src="./app.js?v=2026061103"></script>
   </body>
 </html>

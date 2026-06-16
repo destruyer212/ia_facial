@@ -127,11 +127,27 @@ class LocalEmbeddingStore:
         threshold: float,
         model: str,
     ) -> MatchCandidate | None:
+        return self.find_existing_match(
+            embedding=embedding,
+            threshold=threshold,
+            model=model,
+        )
+
+    def find_existing_match(
+        self,
+        embedding: list[float],
+        threshold: float,
+        model: str,
+        exclude_person_id: str | None = None,
+    ) -> MatchCandidate | None:
         candidates = [record for record in self._load() if record.model == model]
+        exclude = (exclude_person_id or "").strip()
         best: MatchCandidate | None = None
 
         for record in candidates:
             if not record.is_active:
+                continue
+            if exclude and record.person_id == exclude:
                 continue
             distance = cosine_distance(embedding, record.embedding)
             confidence = max(0.0, min(1.0, 1.0 - distance))
@@ -392,32 +408,66 @@ class SupabaseEmbeddingStore:
         threshold: float,
         model: str,
     ) -> MatchCandidate | None:
+        return self.find_existing_match(
+            embedding=embedding,
+            threshold=threshold,
+            model=model,
+        )
+
+    def find_existing_match(
+        self,
+        embedding: list[float],
+        threshold: float,
+        model: str,
+        exclude_person_id: str | None = None,
+    ) -> MatchCandidate | None:
         embedding_literal = "[" + ",".join(str(float(v)) for v in embedding) + "]"
+        exclude = (exclude_person_id or "").strip() or None
         with get_conn() as conn:
             org_id = resolve_org_id(conn)
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    select person_id, full_name, model, distance, confidence
-                    from public.match_face_embeddings(
-                      %s::uuid,
-                      %s::text,
-                      %s::vector(512),
-                      %s::real,
-                      %s::integer
-                    )
+                    select
+                      e.person_id,
+                      p.full_name,
+                      e.model,
+                      (e.embedding <=> %s::vector(512))::real as distance,
+                      greatest(0, least(1, 1 - (e.embedding <=> %s::vector(512))))::real
+                        as confidence
+                    from public.face_embeddings e
+                    join public.persons p
+                      on p.person_id = e.person_id and p.org_id = e.org_id
+                    where e.org_id = %s
+                      and e.model = %s
+                      and p.is_active = true
+                      and (%s::text is null or e.person_id <> %s::text)
+                    order by e.embedding <=> %s::vector(512)
+                    limit 1
                     """,
-                    (org_id, model, embedding_literal, float(threshold), 5),
+                    (
+                        embedding_literal,
+                        embedding_literal,
+                        org_id,
+                        model,
+                        exclude,
+                        exclude,
+                        embedding_literal,
+                    ),
                 )
-                for row in cur.fetchall():
-                    return MatchCandidate(
-                        person_id=row[0],
-                        name=row[1],
-                        model=row[2],
-                        distance=round(float(row[3]), 6),
-                        confidence=round(float(row[4]), 6),
-                    )
-                return None
+                row = cur.fetchone()
+        if not row:
+            return None
+        distance = float(row[3])
+        if distance > threshold:
+            return None
+        return MatchCandidate(
+            person_id=row[0],
+            name=row[1],
+            model=row[2],
+            distance=round(distance, 6),
+            confidence=round(float(row[4]), 6),
+        )
 
     def find_nearest_candidate(
         self,

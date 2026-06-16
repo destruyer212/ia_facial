@@ -1596,21 +1596,29 @@ input[readonly] {
   aspect-ratio: 4 / 3;
 }
 
-.camera-preview,
-.scan-camera-mesh {
+.camera-mirror-layer {
+  position: absolute;
+  inset: 0;
+  transform: scaleX(-1);
+}
+
+.camera-mirror-layer .camera-preview,
+.camera-mirror-layer .scan-camera-mesh,
+.camera-mirror-layer .register-camera-preview,
+.camera-mirror-layer .register-camera-mesh {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform: scaleX(-1);
 }
 
 .camera-preview {
   display: block;
 }
 
-.scan-camera-mesh {
+.scan-camera-mesh,
+.register-camera-mesh {
   pointer-events: none;
   z-index: 2;
 }
@@ -2060,20 +2068,6 @@ input[readonly] {
   box-shadow: var(--shadow-lg);
 }
 
-.register-camera-preview,
-.register-camera-mesh {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transform: scaleX(-1);
-}
-
-.register-camera-mesh {
-  pointer-events: none;
-  z-index: 2;
-}
 
 .register-face-circle {
   position: absolute;

@@ -5,14 +5,81 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.core.config import settings
+from app.schemas.face import MatchCandidate
 from app.services.embedding_store import get_embedding_store, portrait_api_path
 from app.services.face_ai_service import FaceAIService
 from app.services.r2_storage_service import R2StorageService
 from app.services.supabase_db import get_conn, resolve_org_id, save_face_asset
+from app.utils.image_files import flip_image_horizontal, remove_file
 
 face_ai_service = FaceAIService()
 embedding_store = get_embedding_store()
 r2_storage = R2StorageService() if settings.r2_enabled else None
+
+
+class FaceAlreadyRegisteredError(ValueError):
+    def __init__(self, match: MatchCandidate) -> None:
+        self.match = match
+        confidence = round(match.confidence * 100)
+        super().__init__(
+            "Este rostro ya esta registrado como "
+            f"{match.name} ({match.person_id}) con {confidence}% de coincidencia. "
+            "No puedes crear otro perfil con la misma persona."
+        )
+
+
+def get_register_duplicate_threshold() -> float:
+    try:
+        from app.services.admin_service import get_admin_service
+
+        return get_admin_service().get_system_settings().face_scan_match_threshold
+    except Exception:
+        return settings.face_scan_match_threshold
+
+
+def find_duplicate_face_in_image(
+    image_path: Path,
+    *,
+    exclude_person_id: str | None = None,
+) -> MatchCandidate | None:
+    threshold = get_register_duplicate_threshold()
+    model = settings.active_face_model
+    flipped_path = flip_image_horizontal(image_path)
+    best: MatchCandidate | None = None
+
+    try:
+        for path in (image_path, flipped_path):
+            try:
+                embedding = face_ai_service.create_embedding(path)
+            except ValueError:
+                continue
+            match = embedding_store.find_existing_match(
+                embedding=embedding,
+                threshold=threshold,
+                model=model,
+                exclude_person_id=exclude_person_id,
+            )
+            if match is None:
+                continue
+            if best is None or match.distance < best.distance:
+                best = match
+    finally:
+        remove_file(flipped_path)
+
+    return best
+
+
+def assert_face_not_already_registered(
+    image_path: Path,
+    *,
+    exclude_person_id: str | None = None,
+) -> None:
+    match = find_duplicate_face_in_image(
+        image_path,
+        exclude_person_id=exclude_person_id,
+    )
+    if match is not None:
+        raise FaceAlreadyRegisteredError(match)
 
 
 def build_r2_object_key(person_id: str, suffix: str, pose_type: str = "front") -> str:
@@ -45,6 +112,10 @@ async def upsert_face_from_image(
     area_name: str | None = None,
     position_name: str | None = None,
 ) -> tuple[object, str, bool, str | None, str]:
+    assert_face_not_already_registered(
+        image_path,
+        exclude_person_id=person_id.strip(),
+    )
     embedding = face_ai_service.create_embedding(image_path)
     stored = embedding_store.save_embedding(
         person_id=person_id,

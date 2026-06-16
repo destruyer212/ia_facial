@@ -141,10 +141,7 @@
       ctx.clearRect(0, 0, width, height);
       const landmarks = results.faceLandmarks?.[0];
       if (landmarks?.length) {
-        const points = SCAN_TUNING.mirrorWebcam
-          ? landmarks.map((point) => ({ x: 1 - point.x, y: point.y }))
-          : landmarks;
-        drawFaceMesh(ctx, points, width, height);
+        drawFaceMesh(ctx, landmarks, width, height);
       }
       this.loop();
     }
@@ -456,15 +453,7 @@
     }
 
     drawMesh(ctx, landmarks, width, height) {
-      if (!SCAN_TUNING.mirrorWebcam) {
-        drawFaceMesh(ctx, landmarks, width, height);
-        return;
-      }
-      const mirrored = landmarks.map((point) => ({
-        x: 1 - point.x,
-        y: point.y,
-      }));
-      drawFaceMesh(ctx, mirrored, width, height);
+      drawFaceMesh(ctx, landmarks, width, height);
     }
 
     async captureCurrentStep() {

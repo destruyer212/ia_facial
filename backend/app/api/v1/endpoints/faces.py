@@ -28,7 +28,10 @@ from app.services.incident_store import get_incident_store
 from app.services.liveness_service import LivenessService
 from app.services.face_ai_service import FaceAIService
 from app.services.face_match_service import match_face_from_image
-from app.services.face_registration_service import upsert_face_from_image
+from app.services.face_registration_service import (
+    FaceAlreadyRegisteredError,
+    upsert_face_from_image,
+)
 from app.services.opencv_service import OpenCVService
 from app.services.r2_storage_service import R2StorageService
 from app.services.schedule_service import get_schedule_service
@@ -128,6 +131,8 @@ async def register_face(
             image_url=image_url,
             storage_message=storage_message,
         )
+    except FaceAlreadyRegisteredError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
@@ -218,6 +223,8 @@ async def register_face_profile(
             image_url=image_url,
             storage_message="; ".join(storage_messages) if storage_messages else None,
         )
+    except FaceAlreadyRegisteredError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
@@ -440,6 +447,8 @@ async def upload_employee_photo(
             image_url=image_url,
             r2_saved=r2_saved,
         )
+    except FaceAlreadyRegisteredError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:

@@ -2192,23 +2192,26 @@ async function submitFaceRegister(event, options = {}) {
     });
     await handleRegisterSuccess(data, formEl);
   } catch (error) {
-    const recovered = await recoverRegisterIfSaved(expectedCode);
-    if (recovered) {
-      await handleRegisterSuccess(
-        {
-          person_id: recovered.person_id,
-          name: recovered.name,
-          embedding_count: recovered.embedding_count,
-          poses_saved: ["front", "left", "right"],
-          storage_message: "Recuperado tras corte de red: el servidor si guardo el perfil.",
-        },
-        formEl,
-        true,
-      );
-      return;
+    const duplicateFace = isDuplicateFaceError(error);
+    if (!duplicateFace) {
+      const recovered = await recoverRegisterIfSaved(expectedCode);
+      if (recovered) {
+        await handleRegisterSuccess(
+          {
+            person_id: recovered.person_id,
+            name: recovered.name,
+            embedding_count: recovered.embedding_count,
+            poses_saved: ["front", "left", "right"],
+            storage_message: "Recuperado tras corte de red: el servidor si guardo el perfil.",
+          },
+          formEl,
+          true,
+        );
+        return;
+      }
     }
 
-    if (isTransientNetworkError(error)) {
+    if (!duplicateFace && isTransientNetworkError(error)) {
       setRegisterStatus(
         "loading",
         "Reintentando conexion...",
@@ -2249,8 +2252,10 @@ async function submitFaceRegister(event, options = {}) {
     }
     setRegisterStatus(
       "error",
-      "Conexion interrumpida",
-      `${message} Si ves el JSON de exito abajo, el perfil puede estar guardado. Revisa Usuarios.`,
+      duplicateFace ? "Rostro ya registrado" : "Conexion interrumpida",
+      duplicateFace
+        ? `${message} Usa el perfil existente o eliminalo antes de volver a registrar.`
+        : `${message} Si ves el JSON de exito abajo, el perfil puede estar guardado. Revisa Usuarios.`,
     );
     showToast(message, 8000, "error");
     registerStatus?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -2560,6 +2565,11 @@ function setButtonLoading(button, loading, loadingText = "Procesando...", defaul
   button.classList.toggle("loading", loading);
   button.disabled = loading;
   button.textContent = loading ? loadingText : button.dataset.defaultLabel;
+}
+
+function isDuplicateFaceError(error) {
+  const message = parseApiError(error).toLowerCase();
+  return message.includes("ya esta registrado") || message.includes("ya está registrado");
 }
 
 function parseApiError(error) {
