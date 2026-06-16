@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -43,6 +41,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
   late final BiometricScanController _scanner;
   bool _submitting = false;
   bool _showUploadPanel = false;
+  bool _duplicateFaceBlocked = false;
   int _uploadAttempt = 0;
 
   @override
@@ -116,10 +115,14 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
     widget.onCompleted(result);
   }
 
-  void _onUploadError(String raw) {
+  void _onUploadError(String raw, {bool duplicateFace = false}) {
     _submitting = false;
     _showUploadPanel = false;
-    _scanner.setExternalError(_humanizeApiError(raw));
+    _duplicateFaceBlocked = duplicateFace;
+    _scanner.setExternalError(
+      _humanizeApiError(raw, duplicateFace: duplicateFace),
+      title: duplicateFace ? 'Rostro ya registrado' : 'Error',
+    );
     if (mounted) setState(() {});
   }
 
@@ -131,6 +134,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
   }
 
   Future<void> _retryUploadOnly() async {
+    if (_duplicateFaceBlocked) return;
     if (!_hasAllCaptures) {
       _submitting = false;
       _showUploadPanel = false;
@@ -140,7 +144,15 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
     await _submitCaptures();
   }
 
-  String _humanizeApiError(String body) {
+  String _humanizeApiError(String body, {bool duplicateFace = false}) {
+    final detail = FaceApiErrorParser.detailFromBody(body);
+    if (duplicateFace ||
+        FaceApiErrorParser.isDuplicateFace(statusCode: 409, body: body)) {
+      return '$detail\n\n'
+          'No puedes registrar la misma persona dos veces. '
+          'Pide al administrador que use tu perfil existente o elimine el duplicado.';
+    }
+
     final text = body.trim();
     if (text.contains('TimeoutException') || text.contains('timed out')) {
       return 'El servidor tardo mas de lo esperado.\n\n'
@@ -153,17 +165,10 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
         text.contains('Connection refused')) {
       return 'Sin conexion al servidor. Revisa tu internet o la URL del backend.';
     }
-    try {
-      final decoded = jsonDecode(text);
-      if (decoded is Map && decoded['detail'] != null) {
-        final detail = decoded['detail'].toString();
-        if (detail.contains('Formato no soportado')) {
-          return 'Formato de imagen no valido. Actualiza la app e intenta de nuevo.';
-        }
-        return detail.replaceFirst('Error registrando rostro movil: 400: ', '');
-      }
-    } catch (_) {}
-    return text;
+    if (detail.contains('Formato no soportado')) {
+      return 'Formato de imagen no valido. Actualiza la app e intenta de nuevo.';
+    }
+    return detail.replaceFirst('Error registrando rostro movil: 400: ', '');
   }
 
   @override
@@ -384,7 +389,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
                   ),
                   if (showErrorButton) ...[
                     const SizedBox(height: 12),
-                    if (_hasAllCaptures)
+                    if (_hasAllCaptures && !_duplicateFaceBlocked)
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton(
@@ -392,7 +397,8 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
                           child: const Text('Reintentar envio'),
                         ),
                       ),
-                    if (_hasAllCaptures) const SizedBox(height: 8),
+                    if (_hasAllCaptures && !_duplicateFaceBlocked)
+                      const SizedBox(height: 8),
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton(
@@ -401,12 +407,15 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
                             : () {
                                 _submitting = false;
                                 _showUploadPanel = false;
+                                _duplicateFaceBlocked = false;
                                 _scanner.resetAndRestart();
                               },
                         child: Text(
-                          _hasAllCaptures
-                              ? 'Volver a escanear'
-                              : 'Reintentar escaneo',
+                          _duplicateFaceBlocked
+                              ? 'Volver al inicio'
+                              : _hasAllCaptures
+                                  ? 'Volver a escanear'
+                                  : 'Reintentar escaneo',
                         ),
                       ),
                     ),
@@ -420,7 +429,8 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
                       leftFile: _scanner.captures['left']!,
                       rightFile: _scanner.captures['right']!,
                       onSuccess: _onUploadSuccess,
-                      onError: _onUploadError,
+                      onError: (body, {duplicateFace = false}) =>
+                          _onUploadError(body, duplicateFace: duplicateFace),
                     ),
                   ] else if (ui.phase == BiometricScanPhase.submitting) ...[
                     const SizedBox(height: 16),

@@ -211,6 +211,41 @@ class FaceApiException implements Exception {
   final int statusCode;
   final String body;
 
+  String get detail => FaceApiErrorParser.detailFromBody(body);
+
+  bool get isDuplicateFace => FaceApiErrorParser.isDuplicateFace(
+        statusCode: statusCode,
+        body: body,
+      );
+
   @override
   String toString() => 'FaceApiException($statusCode): $body';
+}
+
+class FaceApiErrorParser {
+  static String detailFromBody(String body) {
+    final text = body.trim();
+    if (text.isEmpty) return 'Error desconocido del servidor.';
+
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is Map && decoded['detail'] != null) {
+        return decoded['detail'].toString();
+      }
+    } catch (_) {
+      // texto plano
+    }
+
+    return text;
+  }
+
+  static bool isDuplicateFace({
+    required int statusCode,
+    required String body,
+  }) {
+    if (statusCode == 409) return true;
+    final detail = detailFromBody(body).toLowerCase();
+    return detail.contains('ya esta registrado') ||
+        detail.contains('ya está registrado');
+  }
 }

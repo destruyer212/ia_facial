@@ -494,13 +494,15 @@ class BiometricScanController {
     );
   }
 
-  void setExternalError(String message) => _setError(message);
+  void setExternalError(String message, {String title = 'Error'}) {
+    _setError(message, title: title);
+  }
 
-  void _setError(String message) {
+  void _setError(String message, {String title = 'Error'}) {
     _updateUi(
       uiState.value.copyWith(
         phase: BiometricScanPhase.error,
-        statusTitle: 'Error',
+        statusTitle: title,
         statusHint: message,
         errorMessage: message,
         clearWarning: true,
