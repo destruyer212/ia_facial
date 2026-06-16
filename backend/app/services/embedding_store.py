@@ -532,7 +532,10 @@ class SupabaseEmbeddingStore:
                      and op.area_code = p.area_code
                      and op.position_code = p.position_code
                     where fe.org_id = %s
-                    order by fe.person_id, fa.created_at desc nulls last, fe.created_at desc
+                    order by fe.person_id,
+                      (fa.public_url is not null) desc,
+                      fa.created_at desc nulls last,
+                      fe.created_at desc
                     """,
                     (org_id,),
                 )

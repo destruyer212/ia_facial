@@ -1,6 +1,4 @@
-from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -28,9 +26,9 @@ from app.services.employee_catalog_service import get_employee_catalog_service
 from app.services.embedding_store import get_embedding_store, sanitize_person_id
 from app.services.incident_store import get_incident_store
 from app.services.liveness_service import LivenessService
-from app.services.supabase_db import get_conn, resolve_org_id, save_face_asset
 from app.services.face_ai_service import FaceAIService
 from app.services.face_match_service import match_face_from_image
+from app.services.face_registration_service import upsert_face_from_image
 from app.services.opencv_service import OpenCVService
 from app.services.r2_storage_service import R2StorageService
 from app.services.schedule_service import get_schedule_service
@@ -113,7 +111,7 @@ async def register_face(
     image_path = await _persist_upload(file)
     content_type = file.content_type or "image/jpeg"
     try:
-        stored, image_url, r2_saved, image_key, storage_message = await _upsert_face_from_image(
+        stored, image_url, r2_saved, image_key, storage_message = await upsert_face_from_image(
             person_id=person_id,
             name=name,
             email=email.strip() if email else None,
@@ -185,7 +183,7 @@ async def register_face_profile(
             image_path = await _persist_upload(upload)
             temp_paths.append(image_path)
             content_type = upload.content_type or "image/jpeg"
-            stored, pose_url, pose_r2, _, pose_msg = await _upsert_face_from_image(
+            stored, pose_url, pose_r2, _, pose_msg = await upsert_face_from_image(
                 person_id=person_id,
                 name=name,
                 email=email.strip() if email else None,
@@ -425,7 +423,7 @@ async def upload_employee_photo(
     image_path = await _persist_upload(file)
     content_type = file.content_type or "image/jpeg"
     try:
-        stored, image_url, r2_saved, _, storage_message = await _upsert_face_from_image(
+        stored, image_url, r2_saved, _, storage_message = await upsert_face_from_image(
             person_id=employee.person_id,
             name=employee.name,
             email=employee.email,
@@ -503,93 +501,8 @@ def _get_registered_employee(person_id: str):
     return employee
 
 
-async def _upsert_face_from_image(
-    *,
-    person_id: str,
-    name: str,
-    email: str | None,
-    image_path: Path,
-    content_type: str,
-    pose_type: str = "front",
-    employee_code: str | None = None,
-    area_code: str | None = None,
-    position_code: str | None = None,
-    area_name: str | None = None,
-    position_name: str | None = None,
-) -> tuple[object, str, bool, str | None, str]:
-    embedding = face_ai_service.create_embedding(image_path)
-    stored = embedding_store.save_embedding(
-        person_id=person_id,
-        name=name,
-        model=settings.active_face_model,
-        embedding=embedding,
-        email=email,
-        pose_type=pose_type,
-        employee_code=employee_code,
-        area_code=area_code,
-        position_code=position_code,
-        area_name=area_name,
-        position_name=position_name,
-    )
-    image_url = embedding_store.save_portrait(stored.person_id, image_path, pose_type=pose_type)
-    r2_saved = False
-    image_key: str | None = None
-    storage_message = f"Embedding ({pose_type}) guardado para escaneo."
-    if r2_storage is not None:
-        try:
-            suffix = "register.jpg" if pose_type == "front" else f"pose-{pose_type}.jpg"
-            object_key = _build_r2_object_key(
-                person_id=stored.person_id,
-                suffix=suffix,
-                pose_type=pose_type,
-            )
-            uploaded = r2_storage.upload_file(
-                file_path=image_path,
-                object_key=object_key,
-                content_type=content_type,
-            )
-            r2_saved = True
-            image_key = uploaded.key
-            if uploaded.public_url and pose_type == "front":
-                image_url = uploaded.public_url
-            storage_message = f"Pose {pose_type} guardada en panel, escaneo y R2."
-            if settings.storage_backend.lower() == "supabase" and pose_type == "front":
-                with get_conn() as conn:
-                    org_id = resolve_org_id(conn)
-                    save_face_asset(
-                        conn,
-                        org_id=org_id,
-                        person_id=stored.person_id,
-                        r2_key=uploaded.key,
-                        public_url=uploaded.public_url,
-                        content_type=content_type,
-                        bytes_size=image_path.stat().st_size,
-                    )
-        except Exception as r2_exc:
-            storage_message = f"Pose {pose_type} local OK, pero R2 fallo: {r2_exc}"
-    return stored, image_url, r2_saved, image_key, storage_message
-
-
 async def _persist_upload(file: UploadFile) -> Path:
     try:
         return await save_upload_to_temp_file(file, max_mb=settings.max_upload_mb)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-def _build_r2_object_key(person_id: str, suffix: str, pose_type: str = "front") -> str:
-    now = datetime.now(UTC)
-    sanitized = person_id.strip().replace("/", "_")
-    if pose_type != "front":
-        return (
-            f"person/{sanitized}/poses/{pose_type}/"
-            f"{now:%Y/%m/%d}/"
-            f"{uuid4().hex}-{suffix}"
-        )
-    return (
-        f"person/{sanitized}/raw/"
-        f"{now:%Y/%m/%d}/"
-        f"{uuid4().hex}-{suffix}"
-    )
-
-

@@ -6,13 +6,12 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from app.core.config import settings
 from app.schemas.face import RegisterFaceProfileResponse
 from app.services.embedding_store import get_embedding_store
-from app.services.face_ai_service import FaceAIService
+from app.services.face_registration_service import upsert_face_from_image
 from app.services.registration_token_service import get_registration_token_service
 from app.services.schedule_service import get_schedule_service
 from app.utils.image_files import remove_file, save_upload_to_temp_file
 
 router = APIRouter()
-face_ai_service = FaceAIService()
 embedding_store = get_embedding_store()
 registration_service = get_registration_token_service()
 
@@ -38,31 +37,21 @@ async def mobile_register_face_profile(
     temp_paths: list[Path] = []
     poses_saved: list[str] = []
     image_url: str | None = None
+    r2_saved_any = False
+    storage_messages: list[str] = []
+    stored = None
+
     try:
-        pose_files: list[tuple[str, Path]] = []
         for pose_type, upload in uploads.items():
             image_path = await _persist_upload(upload)
             temp_paths.append(image_path)
-            pose_files.append((pose_type, image_path))
-
-        async def _embed_pose(pose_type: str, image_path: Path) -> tuple[str, Path, list[float]]:
-            embedding = await asyncio.to_thread(
-                face_ai_service.create_embedding,
-                image_path,
-            )
-            return pose_type, image_path, embedding
-
-        embedded = await asyncio.gather(
-            *[_embed_pose(pose_type, image_path) for pose_type, image_path in pose_files]
-        )
-
-        for pose_type, image_path, embedding in embedded:
-            stored = embedding_store.save_embedding(
+            content_type = upload.content_type or "image/jpeg"
+            stored, pose_url, pose_r2, _, pose_msg = await upsert_face_from_image(
                 person_id=person_id,
                 name=worker["name"],
-                model=settings.active_face_model,
-                embedding=embedding,
                 email=worker["email"],
+                image_path=image_path,
+                content_type=content_type,
                 pose_type=pose_type,
                 employee_code=worker["employee_code"],
                 area_code=worker["area_code"],
@@ -70,23 +59,24 @@ async def mobile_register_face_profile(
                 area_name=worker["area_name"],
                 position_name=worker["position_name"],
             )
-            pose_url = embedding_store.save_portrait(person_id, image_path, pose_type=pose_type)
+            poses_saved.append(pose_type)
+            r2_saved_any = r2_saved_any or pose_r2
+            storage_messages.append(pose_msg)
             if pose_type == "front":
                 image_url = pose_url
-            poses_saved.append(pose_type)
 
         get_schedule_service().assign_shift(person_id, worker["shift_code"])
         registration_service.complete_token(token)
         return RegisterFaceProfileResponse(
-            person_id=stored.person_id,
-            name=stored.name,
-            model=stored.model,
+            person_id=stored.person_id if stored else person_id,
+            name=stored.name if stored else worker["name"],
+            model=stored.model if stored else settings.active_face_model,
             poses_saved=poses_saved,
             total_embeddings=embedding_store.count(),
             embedding_count=embedding_store.count_person_embeddings(person_id),
-            r2_saved=False,
+            r2_saved=r2_saved_any,
             image_url=image_url,
-            storage_message="Perfil facial movil guardado y token marcado como usado.",
+            storage_message="; ".join(storage_messages) or "Perfil facial movil guardado.",
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
