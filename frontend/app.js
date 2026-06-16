@@ -2193,7 +2193,8 @@ async function submitFaceRegister(event, options = {}) {
     await handleRegisterSuccess(data, formEl);
   } catch (error) {
     const duplicateFace = isDuplicateFaceError(error);
-    if (!duplicateFace) {
+    const spoofBlocked = isSpoofBlockedError(error);
+    if (!duplicateFace && !spoofBlocked) {
       const recovered = await recoverRegisterIfSaved(expectedCode);
       if (recovered) {
         await handleRegisterSuccess(
@@ -2211,7 +2212,7 @@ async function submitFaceRegister(event, options = {}) {
       }
     }
 
-    if (!duplicateFace && isTransientNetworkError(error)) {
+    if (!duplicateFace && !spoofBlocked && isTransientNetworkError(error)) {
       setRegisterStatus(
         "loading",
         "Reintentando conexion...",
@@ -2252,10 +2253,16 @@ async function submitFaceRegister(event, options = {}) {
     }
     setRegisterStatus(
       "error",
-      duplicateFace ? "Rostro ya registrado" : "Conexion interrumpida",
+      duplicateFace
+        ? "Rostro ya registrado"
+        : spoofBlocked
+          ? "Rostro no validado"
+          : "Conexion interrumpida",
       duplicateFace
         ? `${message} Usa el perfil existente o eliminalo antes de volver a registrar.`
-        : `${message} Si ves el JSON de exito abajo, el perfil puede estar guardado. Revisa Usuarios.`,
+        : spoofBlocked
+          ? `${message} Escanea en vivo con la camara de este equipo, sin fotos ni pantallas.`
+          : `${message} Si ves el JSON de exito abajo, el perfil puede estar guardado. Revisa Usuarios.`,
     );
     showToast(message, 8000, "error");
     registerStatus?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -2570,6 +2577,15 @@ function setButtonLoading(button, loading, loadingText = "Procesando...", defaul
 function isDuplicateFaceError(error) {
   const message = parseApiError(error).toLowerCase();
   return message.includes("ya esta registrado") || message.includes("ya está registrado");
+}
+
+function isSpoofBlockedError(error) {
+  const message = parseApiError(error).toLowerCase();
+  return (
+    message.includes("rostro humano en vivo") ||
+    message.includes("anti-spoof") ||
+    message.includes("fotos, pantallas")
+  );
 }
 
 function parseApiError(error) {

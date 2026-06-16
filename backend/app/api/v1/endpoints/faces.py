@@ -30,6 +30,7 @@ from app.services.face_ai_service import FaceAIService
 from app.services.face_match_service import match_face_from_image
 from app.services.face_registration_service import (
     FaceAlreadyRegisteredError,
+    FaceNotLiveError,
     upsert_face_from_image,
 )
 from app.services.opencv_service import OpenCVService
@@ -133,6 +134,8 @@ async def register_face(
         )
     except FaceAlreadyRegisteredError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except FaceNotLiveError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
@@ -225,6 +228,8 @@ async def register_face_profile(
         )
     except FaceAlreadyRegisteredError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except FaceNotLiveError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
@@ -449,6 +454,8 @@ async def upload_employee_photo(
         )
     except FaceAlreadyRegisteredError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except FaceNotLiveError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:

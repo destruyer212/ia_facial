@@ -69,6 +69,13 @@ class FaceQualityAnalyzer {
     }
 
     if (step.key == 'front') {
+      final leftEye = face.leftEyeOpenProbability;
+      final rightEye = face.rightEyeOpenProbability;
+      if (leftEye != null &&
+          rightEye != null &&
+          (leftEye < 0.55 || rightEye < 0.55)) {
+        return FaceQualityIssue.eyesClosed;
+      }
       if (y.abs() > BiometricConfig.frontPoseMaxDegrees) {
         return FaceQualityIssue.badPose;
       }

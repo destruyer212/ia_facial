@@ -26,7 +26,11 @@ class UploadProgressPanel extends StatefulWidget {
   final File leftFile;
   final File rightFile;
   final ValueChanged<Map<String, dynamic>> onSuccess;
-  final void Function(String body, {bool duplicateFace}) onError;
+  final void Function(
+    String body, {
+    bool duplicateFace,
+    bool spoofBlocked,
+  }) onError;
 
   @override
   State<UploadProgressPanel> createState() => _UploadProgressPanelState();
@@ -77,7 +81,11 @@ class _UploadProgressPanelState extends State<UploadProgressPanel> {
       widget.onSuccess(result);
     } on FaceApiException catch (e) {
       if (mounted) {
-        widget.onError(e.body, duplicateFace: e.isDuplicateFace);
+        widget.onError(
+          e.body,
+          duplicateFace: e.isDuplicateFace,
+          spoofBlocked: e.isSpoofBlocked,
+        );
       }
     } catch (e) {
       if (mounted) widget.onError(e.toString());

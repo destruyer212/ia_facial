@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     liveness_min_head_yaw_delta: float = 0.06
     liveness_min_texture_score: float = 12.0
     liveness_min_anti_spoof_score: float = 0.30
+    register_min_anti_spoof_score: float = 0.38
     liveness_min_pass_score: float = 0.72
     liveness_mar_open_min: float = 0.28
     liveness_smile_enabled: bool = True

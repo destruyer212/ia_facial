@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from app.core.config import settings
 from app.schemas.face import MatchCandidate
+from app.services.anti_spoof_service import AntiSpoofService
 from app.services.embedding_store import get_embedding_store, portrait_api_path
 from app.services.face_ai_service import FaceAIService
 from app.services.r2_storage_service import R2StorageService
@@ -14,7 +15,21 @@ from app.utils.image_files import flip_image_horizontal, remove_file
 
 face_ai_service = FaceAIService()
 embedding_store = get_embedding_store()
+anti_spoof_service = AntiSpoofService()
 r2_storage = R2StorageService() if settings.r2_enabled else None
+
+
+class FaceNotLiveError(ValueError):
+    def __init__(self, pose_type: str, live_score: float) -> None:
+        self.pose_type = pose_type
+        self.live_score = live_score
+        score_pct = round(live_score * 100)
+        super().__init__(
+            f"No se detecto rostro humano en vivo en la pose {pose_type} "
+            f"(validacion anti-spoof {score_pct}%). "
+            "No uses fotos, pantallas, impresiones ni otro telefono. "
+            "Mira directo a la camara de este dispositivo."
+        )
 
 
 class FaceAlreadyRegisteredError(ValueError):
@@ -35,6 +50,19 @@ def get_register_duplicate_threshold() -> float:
         return get_admin_service().get_system_settings().face_scan_match_threshold
     except Exception:
         return settings.face_scan_match_threshold
+
+
+def get_register_anti_spoof_threshold() -> float:
+    return settings.register_min_anti_spoof_score
+
+
+def assert_image_is_live(image_path: Path, pose_type: str) -> None:
+    result = anti_spoof_service.analyze(
+        image_path,
+        min_live_score=get_register_anti_spoof_threshold(),
+    )
+    if not result.is_live:
+        raise FaceNotLiveError(pose_type, result.live_score)
 
 
 def find_duplicate_face_in_image(
@@ -112,6 +140,7 @@ async def upsert_face_from_image(
     area_name: str | None = None,
     position_name: str | None = None,
 ) -> tuple[object, str, bool, str | None, str]:
+    assert_image_is_live(image_path, pose_type)
     assert_face_not_already_registered(
         image_path,
         exclude_person_id=person_id.strip(),

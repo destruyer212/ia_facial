@@ -8,7 +8,7 @@ class FaceDetectionService {
       options: FaceDetectorOptions(
         enableContours: false,
         enableLandmarks: false,
-        enableClassification: false,
+        enableClassification: true,
         performanceMode: FaceDetectorMode.fast,
         minFaceSize: 0.08,
       ),

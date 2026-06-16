@@ -6,7 +6,11 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from app.core.config import settings
 from app.schemas.face import RegisterFaceProfileResponse
 from app.services.embedding_store import get_embedding_store
-from app.services.face_registration_service import FaceAlreadyRegisteredError, upsert_face_from_image
+from app.services.face_registration_service import (
+    FaceAlreadyRegisteredError,
+    FaceNotLiveError,
+    upsert_face_from_image,
+)
 from app.services.registration_token_service import get_registration_token_service
 from app.services.schedule_service import get_schedule_service
 from app.utils.image_files import remove_file, save_upload_to_temp_file
@@ -80,6 +84,8 @@ async def mobile_register_face_profile(
         )
     except FaceAlreadyRegisteredError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except FaceNotLiveError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:

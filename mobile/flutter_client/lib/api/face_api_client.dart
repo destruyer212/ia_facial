@@ -218,6 +218,11 @@ class FaceApiException implements Exception {
         body: body,
       );
 
+  bool get isSpoofBlocked => FaceApiErrorParser.isSpoofBlocked(
+        statusCode: statusCode,
+        body: body,
+      );
+
   @override
   String toString() => 'FaceApiException($statusCode): $body';
 }
@@ -247,5 +252,17 @@ class FaceApiErrorParser {
     final detail = detailFromBody(body).toLowerCase();
     return detail.contains('ya esta registrado') ||
         detail.contains('ya está registrado');
+  }
+
+  static bool isSpoofBlocked({
+    required int statusCode,
+    required String body,
+  }) {
+    final detail = detailFromBody(body).toLowerCase();
+    return detail.contains('rostro humano en vivo') ||
+        detail.contains('anti-spoof') ||
+        detail.contains('anti spoof') ||
+        detail.contains('pantallas') ||
+        detail.contains('fotos, pantallas');
   }
 }

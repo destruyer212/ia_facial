@@ -115,13 +115,26 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
     widget.onCompleted(result);
   }
 
-  void _onUploadError(String raw, {bool duplicateFace = false}) {
+  void _onUploadError(
+    String raw, {
+    bool duplicateFace = false,
+    bool spoofBlocked = false,
+  }) {
     _submitting = false;
     _showUploadPanel = false;
-    _duplicateFaceBlocked = duplicateFace;
+    _duplicateFaceBlocked = duplicateFace || spoofBlocked;
+    final title = duplicateFace
+        ? 'Rostro ya registrado'
+        : spoofBlocked
+            ? 'Rostro no validado'
+            : 'Error';
     _scanner.setExternalError(
-      _humanizeApiError(raw, duplicateFace: duplicateFace),
-      title: duplicateFace ? 'Rostro ya registrado' : 'Error',
+      _humanizeApiError(
+        raw,
+        duplicateFace: duplicateFace,
+        spoofBlocked: spoofBlocked,
+      ),
+      title: title,
     );
     if (mounted) setState(() {});
   }
@@ -144,8 +157,18 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
     await _submitCaptures();
   }
 
-  String _humanizeApiError(String body, {bool duplicateFace = false}) {
+  String _humanizeApiError(
+    String body, {
+    bool duplicateFace = false,
+    bool spoofBlocked = false,
+  }) {
     final detail = FaceApiErrorParser.detailFromBody(body);
+    if (spoofBlocked ||
+        FaceApiErrorParser.isSpoofBlocked(statusCode: 422, body: body)) {
+      return '$detail\n\n'
+          'Debes escanear tu rostro en vivo con la camara de ESTE telefono. '
+          'No enfoques fotos, pantallas ni otro celular.';
+    }
     if (duplicateFace ||
         FaceApiErrorParser.isDuplicateFace(statusCode: 409, body: body)) {
       return '$detail\n\n'
@@ -429,8 +452,12 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
                       leftFile: _scanner.captures['left']!,
                       rightFile: _scanner.captures['right']!,
                       onSuccess: _onUploadSuccess,
-                      onError: (body, {duplicateFace = false}) =>
-                          _onUploadError(body, duplicateFace: duplicateFace),
+                      onError: (body, {duplicateFace = false, spoofBlocked = false}) =>
+                          _onUploadError(
+                            body,
+                            duplicateFace: duplicateFace,
+                            spoofBlocked: spoofBlocked,
+                          ),
                     ),
                   ] else if (ui.phase == BiometricScanPhase.submitting) ...[
                     const SizedBox(height: 16),
