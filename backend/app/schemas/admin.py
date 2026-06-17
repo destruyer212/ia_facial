@@ -18,6 +18,9 @@ class OrganizationProfile(BaseModel):
     ruc: str | None = None
     logo_url: str | None = None
     address: str | None = None
+    brand_primary_color: str = "#0d9488"
+    brand_accent_color: str = "#2563eb"
+    brand_sidebar_color: str = "#101827"
     sites: list[OrganizationSite] = Field(default_factory=list)
 
 
@@ -27,6 +30,9 @@ class OrganizationUpdate(BaseModel):
     ruc: str | None = None
     logo_url: str | None = None
     address: str | None = None
+    brand_primary_color: str | None = None
+    brand_accent_color: str | None = None
+    brand_sidebar_color: str | None = None
     sites: list[OrganizationSite] | None = None
 
 

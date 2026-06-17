@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../api/face_api_client.dart';
+import '../biometric/services/live_blink_capture.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 
@@ -28,7 +29,8 @@ class LivenessChallengeScreen extends StatefulWidget {
   State<LivenessChallengeScreen> createState() => _LivenessChallengeScreenState();
 }
 
-class _LivenessChallengeScreenState extends State<LivenessChallengeScreen> {
+class _LivenessChallengeScreenState extends State<LivenessChallengeScreen>
+    with WidgetsBindingObserver {
   CameraController? _camera;
   List<Map<String, dynamic>> _steps = [];
   String? _challengeId;
@@ -40,11 +42,24 @@ class _LivenessChallengeScreenState extends State<LivenessChallengeScreen> {
   String? _error;
   String _hint = 'Preparando prueba de vida...';
   final Map<String, File> _captures = {};
+  LiveBlinkCapture? _blinkCapture;
+  DeviceOrientation _deviceOrientation = DeviceOrientation.portraitUp;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _bootstrap();
+  }
+
+  @override
+  void didChangeMetrics() {
+    final views = WidgetsBinding.instance.platformDispatcher.views;
+    if (views.isEmpty) return;
+    final orientation = views.first.physicalSize.width > views.first.physicalSize.height
+        ? DeviceOrientation.landscapeLeft
+        : DeviceOrientation.portraitUp;
+    _deviceOrientation = orientation;
   }
 
   Future<void> _bootstrap() async {
@@ -91,7 +106,7 @@ class _LivenessChallengeScreenState extends State<LivenessChallengeScreen> {
         _hint = _currentPrompt();
       });
 
-      await _runCountdownAndCapture();
+      await _runStepCapture();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -106,14 +121,21 @@ class _LivenessChallengeScreenState extends State<LivenessChallengeScreen> {
     return _steps[_stepIndex]['prompt'] as String? ?? 'Mira a la camara';
   }
 
+  String _currentStepType() {
+    if (_steps.isEmpty) return 'front';
+    return _steps[_stepIndex]['type'] as String? ?? 'front';
+  }
+
   String _stepLabel() {
     if (_steps.isEmpty) return 'Paso 1/1';
     return 'Paso ${_stepIndex + 1}/${_steps.length}';
   }
 
-  Future<void> _runCountdownAndCapture() async {
-    if (_camera == null || _verifying) return;
+  void _updateHint(String hint) {
+    if (mounted) setState(() => _hint = hint);
+  }
 
+  Future<void> _runCountdown() async {
     for (var n = 3; n >= 1; n--) {
       if (!mounted) return;
       setState(() {
@@ -123,19 +145,66 @@ class _LivenessChallengeScreenState extends State<LivenessChallengeScreen> {
       await HapticFeedback.lightImpact();
       await Future<void>.delayed(const Duration(milliseconds: 900));
     }
+    if (mounted) {
+      setState(() {
+        _countdown = null;
+        _hint = 'Capturando...';
+      });
+    }
+  }
 
-    if (!mounted) return;
+  Future<File> _captureBlinkLive() async {
+    _blinkCapture ??= LiveBlinkCapture();
+    try {
+      return await _blinkCapture!.captureOnBlink(
+        controller: _camera!,
+        onHint: _updateHint,
+        deviceOrientation: _deviceOrientation,
+      );
+    } on TimeoutException {
+      try {
+        return await _blinkCapture!.captureOnBlink(
+          controller: _camera!,
+          onHint: _updateHint,
+          deviceOrientation: _deviceOrientation,
+          eyeClosedMax: 0.50,
+          eyeDropMin: 0.15,
+          timeout: const Duration(seconds: 10),
+        );
+      } on TimeoutException {
+        return _blinkCapture!.captureBurstPickClosed(
+          controller: _camera!,
+          onHint: _updateHint,
+        );
+      }
+    }
+  }
+
+  Future<void> _runStepCapture() async {
+    if (_camera == null || _verifying) return;
+
+    final step = _steps[_stepIndex];
+    final field = step['form_field'] as String;
+    final isBlink = _currentStepType() == 'blink';
+
     setState(() {
-      _countdown = null;
       _capturing = true;
-      _hint = 'Capturando...';
+      if (isBlink) {
+        _countdown = null;
+        _hint = 'Mira a la camara con ojos abiertos';
+      }
     });
 
     try {
-      final file = await _camera!.takePicture();
-      final step = _steps[_stepIndex];
-      final field = step['form_field'] as String;
-      _captures[field] = File(file.path);
+      final File file;
+      if (isBlink) {
+        file = await _captureBlinkLive();
+      } else {
+        await _runCountdown();
+        file = File((await _camera!.takePicture()).path);
+      }
+
+      _captures[field] = file;
 
       if (_stepIndex >= _steps.length - 1) {
         await _verifyAll();
@@ -148,7 +217,7 @@ class _LivenessChallengeScreenState extends State<LivenessChallengeScreen> {
         _hint = _currentPrompt();
       });
       await Future<void>.delayed(const Duration(milliseconds: 500));
-      await _runCountdownAndCapture();
+      await _runStepCapture();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -207,6 +276,8 @@ class _LivenessChallengeScreenState extends State<LivenessChallengeScreen> {
   }
 
   Future<void> _retry() async {
+    await _blinkCapture?.dispose();
+    _blinkCapture = null;
     setState(() {
       _loading = true;
       _error = null;
@@ -221,6 +292,8 @@ class _LivenessChallengeScreenState extends State<LivenessChallengeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _blinkCapture?.dispose();
     _camera?.dispose();
     super.dispose();
   }

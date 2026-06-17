@@ -684,6 +684,9 @@ class AdminService:
                 ruc="",
                 logo_url="",
                 address="",
+                brand_primary_color="#0d9488",
+                brand_accent_color="#2563eb",
+                brand_sidebar_color="#101827",
                 sites=[
                     OrganizationSite(
                         code="HQ",

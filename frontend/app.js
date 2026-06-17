@@ -38,6 +38,8 @@ const state = {
   registerScanComplete: false,
   registerScanStarting: false,
   registerExpectedCode: "",
+  registerCaptureBlobs: null,
+  lastRegisteredPersonId: null,
   employeeCatalog: null,
   schedule: null,
   scheduleFingerprint: "",
@@ -1840,7 +1842,7 @@ function renderRegisteredUsers() {
       const toggleAction = isInactive ? "activate" : "deactivate";
       const toggleLabel = isInactive ? "Reactivar" : "Desactivar";
       return `
-        <article class="user-card${isInactive ? " inactive" : ""}">
+        <article class="user-card${isInactive ? " inactive" : ""}" data-person-id="${escapeHtml(face.person_id)}">
           <div class="user-card-photo-wrap">${photoMarkup}</div>
           <div class="user-card-body">
             <strong>${escapeHtml(face.name)}</strong>
@@ -2478,6 +2480,8 @@ async function startRegisterFaceScan() {
   }
 
   state.registerScanComplete = false;
+  state.registerCaptureBlobs = null;
+  pauseBackgroundRefresh(true);
   stopRegisterScanner();
   state.registerScanner = new window.RegisterFaceScanner({
     video: registerCameraPreview,
@@ -2497,14 +2501,21 @@ async function startRegisterFaceScan() {
     },
     onComplete: async (captures) => {
       state.registerScanComplete = true;
+      state.registerCaptureBlobs = captures;
       if (faceRegisterForm) {
-        state.registerScanner.applyCapturesToForm(faceRegisterForm);
+        state.registerScanner?.applyCapturesToForm(faceRegisterForm);
         updateRegisterFilesSummary(faceRegisterForm);
       }
       registerStartScanBtn?.classList.add("hidden");
       faceRegisterSubmit?.classList.remove("hidden");
       stopRegisterScanner();
-      await submitFaceRegisterFromScan(faceRegisterForm);
+      try {
+        await submitFaceRegisterFromScan(faceRegisterForm);
+      } catch (error) {
+        const message = parseApiError(error);
+        setRegisterStatus("error", "No se pudo guardar el perfil", message);
+        showToast(message, 8000, "error");
+      }
     },
   });
 
@@ -2523,6 +2534,7 @@ async function startRegisterFaceScan() {
       setRegisterStatus("error", "Rostro no validado", msg);
       showToast(msg, 8000, "error");
       stopRegisterScanner();
+      pauseBackgroundRefresh(false);
       return;
     }
     setRegisterStatus(
@@ -2539,6 +2551,7 @@ async function startRegisterFaceScan() {
     setRegisterStatus("error", "No se pudo escanear", message);
     showToast(message, 7000, "error");
     stopRegisterScanner();
+    pauseBackgroundRefresh(false);
   } finally {
     if (!state.registerScanner?.running) {
       if (registerStartScanBtn) registerStartScanBtn.disabled = false;
@@ -2573,13 +2586,15 @@ async function submitFaceRegister(event, options = {}) {
   const formEl = event.currentTarget;
   const fromScanner = options.fromScanner === true;
 
-  const validationError = validateRegisterForm(formEl, { fromScanner });
+  const validationError = validateRegisterForm(formEl, {
+    fromScanner,
+    captureBlobs: fromScanner ? state.registerCaptureBlobs : null,
+  });
   if (validationError) {
-    if (!fromScanner) {
-      setRegisterStatus("error", "Faltan datos", validationError);
-      showToast(validationError, 5000, "error");
-      registerStatus?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }
+    setRegisterStatus("error", "No se pudo guardar", validationError);
+    showToast(validationError, 6000, "error");
+    registerStatus?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    pauseBackgroundRefresh(false);
     return;
   }
 
@@ -2590,7 +2605,10 @@ async function submitFaceRegister(event, options = {}) {
     return;
   }
 
-  const form = new FormData(formEl);
+  const form = buildRegisterFormPayload(
+    formEl,
+    fromScanner ? state.registerCaptureBlobs : null,
+  );
   const expectedCode = state.registerExpectedCode || registerEmployeeCodeInput?.value?.trim() || "";
   const submitBtn = faceRegisterSubmit || formEl.querySelector('[type="submit"]');
   const defaultLabel = submitBtn?.dataset.defaultLabel || submitBtn?.textContent || "Guardar perfil facial";
@@ -2643,7 +2661,10 @@ async function submitFaceRegister(event, options = {}) {
       );
       await sleep(2500);
       try {
-        const retryForm = new FormData(formEl);
+        const retryForm = buildRegisterFormPayload(
+          formEl,
+          fromScanner ? state.registerCaptureBlobs : null,
+        );
         const data = await requestForm("/api/v1/faces/register-profile", retryForm, {
           silent: true,
           timeoutMs: 300_000,
@@ -2715,7 +2736,9 @@ async function handleRegisterSuccess(data, formEl, recovered = false) {
   );
   speak(`Perfil facial de ${data.name} guardado correctamente.`, { priority: true });
   state.registerScanComplete = false;
+  state.registerCaptureBlobs = null;
   state.registerExpectedCode = "";
+  state.lastRegisteredPersonId = data.person_id || null;
   registerStartScanBtn?.classList.remove("hidden");
   faceRegisterSubmit?.classList.add("hidden");
   formEl.reset();
@@ -2724,6 +2747,11 @@ async function handleRegisterSuccess(data, formEl, recovered = false) {
   await refreshFaces();
   await refreshScheduleOverview(true);
   await refreshRegisterEmployeeCode();
+  pauseBackgroundRefresh(false);
+  openDashboardView("users");
+  if (state.lastRegisteredPersonId) {
+    window.setTimeout(() => highlightRegisteredUser(state.lastRegisteredPersonId), 450);
+  }
 }
 
 async function recoverRegisterIfSaved(personId) {
@@ -2839,9 +2867,9 @@ function resetRegisterHierarchyFields() {
 }
 
 function validateRegisterForm(formEl, options = {}) {
-  const areaCode = String(new FormData(formEl).get("area_code") || "").trim();
-  const positionCode = String(new FormData(formEl).get("position_code") || "").trim();
-  const name = String(new FormData(formEl).get("name") || "").trim();
+  const areaCode = getRegisterFieldValue(formEl, "area_code");
+  const positionCode = getRegisterFieldValue(formEl, "position_code");
+  const name = getRegisterFieldValue(formEl, "name");
   if (!areaCode || !positionCode) return "Selecciona area y cargo.";
   if (!name) return "Ingresa el nombre del colaborador.";
 
@@ -2850,7 +2878,9 @@ function validateRegisterForm(formEl, options = {}) {
     { name: "left", label: "giro izquierda" },
     { name: "right", label: "giro derecha" },
   ];
+  const captureBlobs = options.captureBlobs;
   const missing = requiredFiles.filter(({ name: fieldName }) => {
+    if (captureBlobs && captureBlobs[fieldName]) return false;
     const input = formEl.querySelector(`input[name="${fieldName}"]`);
     return !input?.files?.length;
   });
@@ -2861,6 +2891,54 @@ function validateRegisterForm(formEl, options = {}) {
     return `Faltan capturas obligatorias: ${missing.map((item) => item.label).join(", ")}. Usa Iniciar escaneo facial.`;
   }
   return null;
+}
+
+function getRegisterFieldValue(formEl, name) {
+  const control = formEl.elements.namedItem(name);
+  if (control && "value" in control) {
+    return String(control.value || "").trim();
+  }
+  return String(new FormData(formEl).get(name) || "").trim();
+}
+
+function buildRegisterFormPayload(formEl, captureBlobs = null) {
+  const form = new FormData();
+  form.append("area_code", getRegisterFieldValue(formEl, "area_code"));
+  form.append("position_code", getRegisterFieldValue(formEl, "position_code"));
+  form.append("name", getRegisterFieldValue(formEl, "name"));
+
+  const shiftCode = getRegisterFieldValue(formEl, "shift_code");
+  if (shiftCode) form.append("shift_code", shiftCode);
+
+  const email = getRegisterFieldValue(formEl, "email");
+  if (email) form.append("email", email);
+
+  const poseFields = ["front", "left", "right"];
+  for (const field of poseFields) {
+    const blob = captureBlobs?.[field];
+    if (blob instanceof Blob) {
+      form.append(field, blob, `${field}.jpg`);
+      continue;
+    }
+    const input = formEl.querySelector(`input[name="${field}"]`);
+    const file = input?.files?.[0];
+    if (file) form.append(field, file, file.name || `${field}.jpg`);
+  }
+
+  return form;
+}
+
+function highlightRegisteredUser(personId) {
+  const container = document.querySelector("#registered-users");
+  if (!container) return;
+  container.querySelectorAll(".user-card.highlight-new").forEach((card) => {
+    card.classList.remove("highlight-new");
+  });
+  const card = container.querySelector(`.user-card[data-person-id="${personId}"]`);
+  if (!card) return;
+  card.classList.add("highlight-new");
+  card.scrollIntoView({ behavior: "smooth", block: "center" });
+  window.setTimeout(() => card.classList.remove("highlight-new"), 6000);
 }
 
 function handleRegisterFormChange(event) {

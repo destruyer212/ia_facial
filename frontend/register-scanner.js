@@ -619,7 +619,10 @@
       this.circleEl?.classList.remove("scanning");
       this.onStatus("success", "Escaneo completo", "Las 3 poses fueron capturadas. Guardando perfil...");
       this.onSpeak("Escaneo completo. Guardando tu perfil facial.");
-      this.onComplete(this.captures);
+      Promise.resolve(this.onComplete(this.captures)).catch((error) => {
+        const message = error?.message || "No se pudo guardar el perfil.";
+        this.onStatus("error", "Error al guardar", message);
+      });
     }
 
     async grabFrameBlob() {
