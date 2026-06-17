@@ -41,6 +41,17 @@
   const MESH_POINT_COLOR = "#38bdf8";
   const MESH_GLOW_COLOR = "rgba(56, 189, 248, 0.45)";
 
+  const LEFT_EYE_INDICES = [33, 160, 158, 133, 153, 144];
+  const RIGHT_EYE_INDICES = [362, 385, 387, 263, 373, 380];
+
+  const BLINK_LIVE_TUNING = {
+    earOpenMin: 0.19,
+    earClosedMax: 0.24,
+    earDropMin: 0.035,
+    openFramesRequired: 5,
+    timeoutMs: 14000,
+  };
+
   let sharedLandmarker = null;
   let sharedLandmarkerPromise = null;
 
@@ -82,6 +93,125 @@
       ctx.arc(x, y, 1.6, 0, Math.PI * 2);
       ctx.fill();
     }
+  }
+
+  function eyeAspectRatio(landmarks, eyeIndices) {
+    const pt = (idx) => landmarks[idx];
+    const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const verticalA = dist(pt(eyeIndices[1]), pt(eyeIndices[5]));
+    const verticalB = dist(pt(eyeIndices[2]), pt(eyeIndices[4]));
+    const horizontal = dist(pt(eyeIndices[0]), pt(eyeIndices[3]));
+    if (horizontal <= 0) return 0;
+    return (verticalA + verticalB) / (2 * horizontal);
+  }
+
+  function computeEarAvg(landmarks) {
+    const left = eyeAspectRatio(landmarks, LEFT_EYE_INDICES);
+    const right = eyeAspectRatio(landmarks, RIGHT_EYE_INDICES);
+    return (left + right) / 2;
+  }
+
+  /**
+   * Espera un parpadeo real (ojos cerrados) con MediaPipe y captura en ese instante.
+   */
+  async function captureBlinkOnLiveClose({ video, captureFrame, onStatus }) {
+    const landmarker = await loadSharedLandmarker();
+    if (!video?.videoWidth) {
+      throw new Error("La camara no esta lista para detectar parpadeo.");
+    }
+    if (typeof captureFrame !== "function") {
+      throw new Error("No hay funcion de captura para el paso de parpadeo.");
+    }
+
+    let baselineEar = 0;
+    let openFrames = 0;
+    const started = performance.now();
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+
+      const finish = (fn) => {
+        if (settled) return;
+        settled = true;
+        fn();
+      };
+
+      const tick = () => {
+        if (settled) return;
+
+        if (performance.now() - started > BLINK_LIVE_TUNING.timeoutMs) {
+          finish(() => {
+            reject(
+              new Error(
+                "No se detecto parpadeo a tiempo. Mira de frente y parpadea de forma natural.",
+              ),
+            );
+          });
+          return;
+        }
+
+        let landmarks;
+        try {
+          landmarks = landmarker.detectForVideo(video, performance.now()).faceLandmarks?.[0];
+        } catch {
+          requestAnimationFrame(tick);
+          return;
+        }
+
+        if (!landmarks?.length) {
+          onStatus?.("Centra tu rostro en la camara...");
+          openFrames = 0;
+          baselineEar = 0;
+          requestAnimationFrame(tick);
+          return;
+        }
+
+        const ear = computeEarAvg(landmarks);
+
+        if (openFrames < BLINK_LIVE_TUNING.openFramesRequired) {
+          if (ear >= BLINK_LIVE_TUNING.earOpenMin) {
+            openFrames += 1;
+            baselineEar =
+              baselineEar === 0 ? ear : Math.max(baselineEar, ear * 0.35 + baselineEar * 0.65);
+            onStatus?.("Listo — parpadea de forma natural");
+          } else {
+            openFrames = Math.max(0, openFrames - 1);
+            onStatus?.("Abre los ojos y mira a la camara");
+          }
+          requestAnimationFrame(tick);
+          return;
+        }
+
+        const earDrop = baselineEar - ear;
+        const eyesClosed =
+          ear <= BLINK_LIVE_TUNING.earClosedMax || earDrop >= BLINK_LIVE_TUNING.earDropMin;
+
+        if (!eyesClosed) {
+          onStatus?.("Te estamos mirando — parpadea cuando quieras");
+          if (ear > baselineEar * 0.92) {
+            baselineEar = ear * 0.25 + baselineEar * 0.75;
+          }
+          requestAnimationFrame(tick);
+          return;
+        }
+
+        onStatus?.("Parpadeo detectado — capturando...");
+        captureFrame()
+          .then((blob) => {
+            if (!blob) {
+              finish(() => reject(new Error("No se pudo capturar el parpadeo.")));
+              return;
+            }
+            finish(() => resolve(blob));
+          })
+          .catch((error) => {
+            finish(() => reject(error));
+          });
+      };
+
+      onStatus?.("Detectando parpadeo en vivo...");
+      requestAnimationFrame(tick);
+    });
   }
 
   class FaceMeshOverlay {
@@ -533,8 +663,38 @@
     }
   }
 
+  async function captureBlinkBurstPickClosed(video, captureFrame, count = 8, intervalMs = 110) {
+    const landmarker = await loadSharedLandmarker();
+    let bestBlob = null;
+    let lowestEar = Infinity;
+
+    for (let index = 0; index < count; index += 1) {
+      let ear = 1;
+      try {
+        const landmarks = landmarker.detectForVideo(video, performance.now()).faceLandmarks?.[0];
+        if (landmarks?.length) {
+          ear = computeEarAvg(landmarks);
+        }
+      } catch {
+        // continuar
+      }
+      const blob = await captureFrame();
+      if (blob && ear <= lowestEar) {
+        lowestEar = ear;
+        bestBlob = blob;
+      }
+      if (index < count - 1) {
+        await sleep(intervalMs);
+      }
+    }
+
+    return bestBlob || captureFrame();
+  }
+
   window.RegisterFaceScanner = RegisterFaceScanner;
   window.FaceMeshOverlay = FaceMeshOverlay;
+  window.captureBlinkOnLiveClose = captureBlinkOnLiveClose;
+  window.captureBlinkBurstPickClosed = captureBlinkBurstPickClosed;
   window.REGISTER_SCAN_STEPS = REGISTER_SCAN_STEPS;
   window.registerScannerLoadError = null;
 

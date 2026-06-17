@@ -11,7 +11,7 @@
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=2026061104" />
+    <link rel="stylesheet" href="./styles.css?v=2026061604" />
   </head>
   <body>
     <aside class="sidebar">
@@ -28,59 +28,76 @@
         </div>
       </div>
 
-      <nav class="nav" aria-label="Navegacion principal">
-        <button class="nav-item active" data-view="overview">
-          <span class="nav-icon" aria-hidden="true">◫</span>
-          <span>Panel</span>
-        </button>
-        <button class="nav-item" data-view="organization">
-          <span class="nav-icon" aria-hidden="true">OR</span>
-          <span>Organizacion</span>
-        </button>
-        <button class="nav-item" data-view="areas">
-          <span class="nav-icon" aria-hidden="true">AC</span>
-          <span>Areas y cargos</span>
-        </button>
-        <button class="nav-item" data-view="schedules">
-          <span class="nav-icon" aria-hidden="true">HT</span>
-          <span>Horarios y turnos</span>
-        </button>
-        <button class="nav-item" data-view="attendance">
-          <span class="nav-icon" aria-hidden="true">◎</span>
-          <span>Marcacion facial</span>
-        </button>
-        <button class="nav-item" data-view="register">
-          <span class="nav-icon" aria-hidden="true">◎</span>
-          <span>Registrar rostro</span>
-        </button>
-        <button class="nav-item" data-view="preregistration">
-          <span class="nav-icon" aria-hidden="true">TK</span>
-          <span>Trabajadores con Token</span>
-        </button>
-        <button class="nav-item" data-view="scan">
-          <span class="nav-icon" aria-hidden="true">▣</span>
-          <span>Escanear</span>
-        </button>
-        <button class="nav-item" data-view="users">
-          <span class="nav-icon" aria-hidden="true">👥</span>
-          <span>Usuarios</span>
-        </button>
-        <button class="nav-item" data-view="reports">
-          <span class="nav-icon" aria-hidden="true">📊</span>
-          <span>Entradas y salidas</span>
-        </button>
-        <button class="nav-item" data-view="incidents">
-          <span class="nav-icon" aria-hidden="true">⚠</span>
-          <span>Incidencias</span>
-        </button>
-        <button class="nav-item" data-view="devices">
-          <span class="nav-icon" aria-hidden="true">DV</span>
-          <span>Dispositivos</span>
-        </button>
-        <button class="nav-item" data-view="settings">
-          <span class="nav-icon" aria-hidden="true">CF</span>
-          <span>Configuracion</span>
-        </button>
+      <button id="mobile-menu-toggle" class="mobile-menu-toggle" type="button" aria-label="Abrir menu" aria-expanded="false" aria-controls="primary-nav">
+        <span aria-hidden="true"></span>
+        <span aria-hidden="true"></span>
+        <span aria-hidden="true"></span>
+      </button>
+
+      <nav id="primary-nav" class="nav" aria-label="Navegacion principal">
+        <div class="nav-section">
+          <p class="nav-section-title">Operacion</p>
+          <button class="nav-item active" data-view="overview">
+            <span class="nav-icon" aria-hidden="true">&#8962;</span>
+            <span>Panel ejecutivo</span>
+          </button>
+          <button class="nav-item" data-view="attendance">
+            <span class="nav-icon" aria-hidden="true">&#9673;</span>
+            <span>Asistencia facial</span>
+          </button>
+          <button class="nav-item" data-view="scan">
+            <span class="nav-icon" aria-hidden="true">&#128247;</span>
+            <span>Escaner</span>
+          </button>
+          <button class="nav-item" data-view="reports">
+            <span class="nav-icon" aria-hidden="true">&#9638;</span>
+            <span>Entradas y salidas</span>
+          </button>
+          <button class="nav-item" data-view="incidents">
+            <span class="nav-icon" aria-hidden="true">&#9888;</span>
+            <span>Incidencias</span>
+          </button>
+        </div>
+
+        <div class="nav-section">
+          <p class="nav-section-title">Empresa</p>
+          <button class="nav-item" data-view="organization">
+            <span class="nav-icon" aria-hidden="true">&#127970;</span>
+            <span>Datos de empresa</span>
+          </button>
+          <button class="nav-item" data-view="areas">
+            <span class="nav-icon" aria-hidden="true">&#8942;</span>
+            <span>Areas y cargos</span>
+          </button>
+          <button class="nav-item" data-view="schedules">
+            <span class="nav-icon" aria-hidden="true">&#128338;</span>
+            <span>Horarios y turnos</span>
+          </button>
+          <button class="nav-item" data-view="users">
+            <span class="nav-icon" aria-hidden="true">&#128101;</span>
+            <span>Colaboradores</span>
+          </button>
+          <button class="nav-item" data-view="register">
+            <span class="nav-icon" aria-hidden="true">&#9678;</span>
+            <span>Registro web</span>
+          </button>
+          <button class="nav-item" data-view="preregistration">
+            <span class="nav-icon" aria-hidden="true">&#128273;</span>
+            <span>Registro movil</span>
+          </button>
+        </div>
+
+        <div class="nav-section">
+          <p class="nav-section-title">Sistema</p>
+          <button class="nav-item" data-view="devices">
+            <span class="nav-icon" aria-hidden="true">&#128187;</span>
+            <span>Dispositivos</span>
+          </button>
+          <button class="nav-item" data-view="settings">
+            <span class="nav-icon" aria-hidden="true">&#9881;</span>
+            <span>Configuracion</span>
+          </button>
+        </div>
       </nav>
 
       <div class="system-card">
@@ -92,12 +109,14 @@
       </div>
     </aside>
 
+    <div id="mobile-menu-backdrop" class="mobile-menu-backdrop" hidden></div>
+
     <main class="shell">
       <header class="topbar">
         <div class="topbar-copy">
           <p class="topbar-eyebrow">IA Facial Enterprise</p>
           <h1>Panel de asistencia facial</h1>
-          <p id="view-subtitle" class="topbar-subtitle">Resumen en tiempo real de tu operacion</p>
+          <p id="view-subtitle" class="topbar-subtitle">Resumen operativo de asistencia, personas y dispositivos</p>
           <p id="today-label" class="topbar-date"></p>
         </div>
         <div class="topbar-actions">
@@ -115,57 +134,81 @@
       <div id="admin-warnings" class="admin-warning hidden"></div>
 
       <section class="view active" id="view-overview">
+        <section class="panel overview-brief">
+          <div class="overview-brief-copy">
+            <span class="section-kicker">Control diario</span>
+            <h2 id="overview-main-status">Sin marcas registradas hoy</h2>
+            <p id="overview-main-detail">El panel se actualiza automaticamente cada 30 segundos.</p>
+          </div>
+          <div class="overview-actions">
+            <button class="primary-btn" type="button" data-open-view="scan">Abrir escaner</button>
+            <button class="ghost-btn" type="button" data-open-view="reports">Ver reporte</button>
+          </div>
+        </section>
+
         <div class="metrics-grid">
           <article class="metric metric-events">
-            <div class="metric-icon" aria-hidden="true">📋</div>
+            <div class="metric-icon" aria-hidden="true">&#9638;</div>
             <div class="metric-body">
-              <span>Eventos</span>
+              <span>Marcas hoy</span>
               <strong id="metric-events">0</strong>
-              <small>Registros recibidos</small>
+              <small id="metric-events-sub">Total reciente: 0</small>
             </div>
           </article>
           <article class="metric metric-incidents">
-            <div class="metric-icon" aria-hidden="true">⚡</div>
+            <div class="metric-icon" aria-hidden="true">&#9888;</div>
             <div class="metric-body">
               <span>Incidencias</span>
               <strong id="metric-incidents">0</strong>
-              <small>Casos abiertos</small>
+              <small id="metric-incidents-sub">Casos abiertos</small>
             </div>
           </article>
           <article class="metric metric-faces">
-            <div class="metric-icon" aria-hidden="true">🙂</div>
+            <div class="metric-icon" aria-hidden="true">&#128101;</div>
             <div class="metric-body">
-              <span>Rostros</span>
+              <span>Rostros activos</span>
               <strong id="metric-faces">0</strong>
-              <small>Personas registradas</small>
+              <small id="metric-faces-sub">Perfiles registrados</small>
             </div>
           </article>
           <article class="metric metric-device">
-            <div class="metric-icon" aria-hidden="true">📡</div>
+            <div class="metric-icon" aria-hidden="true">&#128187;</div>
             <div class="metric-body">
-              <span>Dispositivo</span>
-              <strong id="metric-device">Edge</strong>
+              <span>Dispositivos</span>
+              <strong id="metric-device">--</strong>
               <small id="metric-device-sub">edge-windows-001</small>
             </div>
           </article>
         </div>
 
-        <section class="panel">
-          <div class="panel-header">
-            <div>
-              <h2>Actividad reciente</h2>
-              <p class="panel-desc">Ultimas marcas de asistencia registradas</p>
+        <div class="overview-workspace">
+          <section class="panel recent-panel">
+            <div class="panel-header">
+              <div>
+                <h2>Actividad reciente</h2>
+                <p class="panel-desc">Ultimas marcas recibidas, ordenadas por fecha real</p>
+              </div>
+              <span id="last-sync" class="sync-badge">Sin sincronizar</span>
             </div>
-            <span id="last-sync" class="sync-badge">Sin sincronizar</span>
-          </div>
-          <div id="recent-events" class="event-list empty">
-            <div class="empty-state">
-              <span class="empty-icon">📭</span>
-              <p>Sin eventos todavia</p>
-              <small>Las marcas apareceran aqui al escanear con reconocimiento facial</small>
+            <div id="recent-events" class="event-list empty">
+              <div class="empty-state">
+                <span class="empty-icon">&#9638;</span>
+                <p>Sin eventos todavia</p>
+                <small>Las marcas apareceran aqui al escanear con reconocimiento facial</small>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+
+          <section class="panel insight-panel">
+            <div class="panel-header">
+              <div>
+                <h2>Lectura rapida</h2>
+                <p class="panel-desc">Estado operativo para decidir rapido</p>
+              </div>
+            </div>
+            <div id="overview-insights" class="insight-list"></div>
+          </section>
+        </div>
       </section>
 
       <section class="view" id="view-organization">
@@ -203,10 +246,28 @@
                 Zona horaria
                 <input name="timezone" value="America/Lima" required />
               </label>
+              <div class="theme-config full-row">
+                <div>
+                  <strong>Personalizacion visual</strong>
+                  <small>Estos colores se aplican al panel de esta empresa.</small>
+                </div>
+                <label>
+                  Primario
+                  <input name="brand_primary_color" type="color" value="#0d9488" />
+                </label>
+                <label>
+                  Acento
+                  <input name="brand_accent_color" type="color" value="#2563eb" />
+                </label>
+                <label>
+                  Menu
+                  <input name="brand_sidebar_color" type="color" value="#101827" />
+                </label>
+              </div>
               <label class="full-row">
                 Sedes / sucursales
                 <textarea name="sites" rows="5" placeholder="HQ | Oficina Principal | Av. Principal 123 | active"></textarea>
-                <small class="field-hint">Una sede por linea: CODIGO | Nombre | Direccion | active/inactive</small>
+                <small class="field-hint">Una sede por linea: CODIGO | Nombre | Direccion | active/inactive. Si Oficina Principal no tiene direccion, usa la direccion principal.</small>
               </label>
               <button class="primary-btn full-row" type="submit">Guardar organizacion</button>
             </form>
@@ -215,22 +276,44 @@
           <section class="panel">
             <div class="panel-header">
               <div>
-                <h2>Resumen</h2>
-                <p class="panel-desc">Datos visibles para operacion interna</p>
+                <h2>Perfil empresarial</h2>
+                <p class="panel-desc">Vista limpia de datos activos y sedes</p>
               </div>
             </div>
-            <div id="organization-summary" class="admin-summary"></div>
+            <div id="organization-summary" class="admin-summary">
+              <div class="empty-state compact-empty">
+                <span class="empty-icon">&#127970;</span>
+                <p>Cargando empresa</p>
+                <small>Conectando con la configuracion corporativa</small>
+              </div>
+            </div>
           </section>
         </div>
       </section>
 
       <section class="view" id="view-areas">
-        <div class="two-column">
+        <section class="panel org-map-panel">
+          <div class="panel-header">
+            <div>
+              <h2>Mapa organizacional</h2>
+              <p class="panel-desc">Areas activas y cargos asociados en una sola lectura</p>
+            </div>
+          </div>
+          <div id="admin-hierarchy-list" class="org-hierarchy">
+            <div class="empty-state compact-empty">
+              <span class="empty-icon">&#8942;</span>
+              <p>Cargando estructura</p>
+              <small>Las areas y cargos apareceran aqui cuando responda la API</small>
+            </div>
+          </div>
+        </section>
+
+        <div class="two-column admin-lists">
           <section class="panel">
             <div class="panel-header">
               <div>
                 <h2>Crear o editar area</h2>
-                <p class="panel-desc">Codigos como GG, AD, MS</p>
+                <p class="panel-desc">Define unidades internas para codigos de empleado</p>
               </div>
             </div>
             <form id="area-form" class="form-grid compact-admin-form">
@@ -258,7 +341,7 @@
             <div class="panel-header">
               <div>
                 <h2>Crear o editar cargo</h2>
-                <p class="panel-desc">Codigos usados en el correlativo del empleado</p>
+                <p class="panel-desc">Asocia cargos a cada area de la empresa</p>
               </div>
             </div>
             <form id="position-form" class="form-grid compact-admin-form">
@@ -297,7 +380,13 @@
                 <p class="panel-desc">Activa o desactiva unidades de la empresa</p>
               </div>
             </div>
-            <div id="admin-areas-list" class="admin-list"></div>
+            <div id="admin-areas-list" class="admin-list">
+              <div class="empty-state compact-empty">
+                <span class="empty-icon">&#8942;</span>
+                <p>Cargando areas</p>
+                <small>Esperando datos administrativos</small>
+              </div>
+            </div>
           </section>
 
           <section class="panel">
@@ -307,29 +396,53 @@
                 <p class="panel-desc">Cargos disponibles por area</p>
               </div>
             </div>
-            <div id="admin-positions-list" class="admin-list"></div>
+            <div id="admin-positions-list" class="admin-list">
+              <div class="empty-state compact-empty">
+                <span class="empty-icon">&#9638;</span>
+                <p>Cargando cargos</p>
+                <small>Esperando datos administrativos</small>
+              </div>
+            </div>
           </section>
         </div>
       </section>
 
       <section class="view" id="view-schedules">
-        <section class="panel">
+        <section class="panel schedule-command">
           <div class="panel-header">
             <div>
               <h2>Horarios y Turnos</h2>
-              <p class="panel-desc">Turnos fijos TM/TT con reglas automaticas de tardanza y salida anticipada</p>
+              <p class="panel-desc">Cobertura de turnos, reglas automaticas y empleados pendientes de asignacion</p>
             </div>
             <button id="reload-schedules" class="ghost-btn" type="button">Recargar</button>
+          </div>
+          <div id="shift-summary" class="schedule-summary">
+            <article>
+              <span>Total empleados</span>
+              <strong>--</strong>
+            </article>
+            <article>
+              <span>Asignados</span>
+              <strong>--</strong>
+            </article>
+            <article>
+              <span>Sin turno</span>
+              <strong>--</strong>
+            </article>
+            <article>
+              <span>Cobertura</span>
+              <strong>--</strong>
+            </article>
           </div>
           <div id="shift-cards" class="shift-cards"></div>
         </section>
 
-        <div class="admin-grid admin-lists">
+        <div class="schedule-layout admin-lists">
           <section class="panel">
             <div class="panel-header">
               <div>
                 <h2>Asignar Turno</h2>
-                <p class="panel-desc">Vincula el empleado con TM o TT</p>
+                <p class="panel-desc">Vincula un empleado con el turno operativo correcto</p>
               </div>
             </div>
             <form id="shift-assignment-form" class="form-grid">
@@ -357,9 +470,13 @@
           <section class="panel">
             <div class="panel-header">
               <div>
-                <h2>Empleados por Turno</h2>
-                <p class="panel-desc">Distribucion actual por TM, TT y sin turno</p>
+                <h2>Dotacion por turno</h2>
+                <p class="panel-desc">Distribucion actual por turno y pendientes de asignacion</p>
               </div>
+              <label class="compact-search">
+                <span>Buscar</span>
+                <input id="shift-roster-search" type="search" placeholder="Nombre, codigo o area" />
+              </label>
             </div>
             <div id="employees-by-shift" class="shift-groups"></div>
           </section>
@@ -412,7 +529,13 @@
                 <p class="panel-desc">Actividad reciente y estado operativo</p>
               </div>
             </div>
-            <div id="admin-devices-list" class="admin-list"></div>
+            <div id="admin-devices-list" class="admin-list">
+              <div class="empty-state compact-empty">
+                <span class="empty-icon">&#128187;</span>
+                <p>Cargando dispositivos</p>
+                <small>Esperando estado operativo</small>
+              </div>
+            </div>
           </section>
         </div>
       </section>
@@ -470,7 +593,13 @@
                 <p class="panel-desc">Modo de datos y almacenamiento actual</p>
               </div>
             </div>
-            <div id="settings-runtime" class="admin-summary"></div>
+            <div id="settings-runtime" class="admin-summary">
+              <div class="empty-state compact-empty">
+                <span class="empty-icon">&#9881;</span>
+                <p>Cargando runtime</p>
+                <small>Esperando parametros del sistema</small>
+              </div>
+            </div>
           </section>
         </div>
       </section>
@@ -526,7 +655,7 @@
           </article>
         </div>
 
-        <section class="panel">
+        <section class="panel attendance-live-panel">
           <div class="panel-header">
             <div>
               <h2>Actividad en vivo</h2>
@@ -1129,10 +1258,10 @@
     </main>
 
     <script>
-      window.__IA_FACIAL_BUILD = "2026061101";
+      window.__IA_FACIAL_BUILD = "2026061604";
       console.info("[IA Facial] build", window.__IA_FACIAL_BUILD);
     </script>
-    <script src="./register-scanner.js?v=2026061105"></script>
-    <script src="./app.js?v=2026061105"></script>
+    <script src="./register-scanner.js?v=2026061605"></script>
+    <script src="./app.js?v=2026061605"></script>
   </body>
 </html>

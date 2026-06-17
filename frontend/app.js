@@ -47,6 +47,7 @@ const state = {
   adminFingerprint: "",
   backgroundRefreshPaused: false,
   refreshTimer: null,
+  lastSyncAt: null,
 };
 
 const DEFAULT_API_BASE = "http://104.238.215.26";
@@ -129,6 +130,9 @@ const preRegisterForm = document.querySelector("#pre-register-form");
 const preRegisterAreaSelect = document.querySelector("#pre-register-area-code");
 const preRegisterPositionSelect = document.querySelector("#pre-register-position-code");
 const preRegisterShiftSelect = document.querySelector("#pre-register-shift-code");
+const shiftRosterSearch = document.querySelector("#shift-roster-search");
+const mobileMenuToggle = document.querySelector("#mobile-menu-toggle");
+const mobileMenuBackdrop = document.querySelector("#mobile-menu-backdrop");
 
 document.querySelector("#today-label").textContent = new Intl.DateTimeFormat("es-PE", {
   weekday: "long",
@@ -138,31 +142,31 @@ document.querySelector("#today-label").textContent = new Intl.DateTimeFormat("es
 }).format(new Date());
 
 const viewTitles = {
-  overview: "Panel de asistencia facial",
+  overview: "Panel ejecutivo",
   attendance: "Centro de marcacion facial",
   register: "Registrar rostro",
   scan: "Escanear y marcar asistencia",
-  users: "Usuarios registrados",
+  users: "Colaboradores registrados",
   reports: "Reporte de entradas y salidas",
   incidents: "Incidencias de salida",
-  organization: "Organizacion",
+  organization: "Datos de empresa",
   areas: "Areas y cargos",
   schedules: "Horarios y turnos",
-  preregistration: "Trabajadores con Token",
+  preregistration: "Tokens de registro",
   devices: "Dispositivos",
   settings: "Configuracion del sistema",
 };
 
 const viewSubtitles = {
-  overview: "Resumen en tiempo real de tu operacion",
+  overview: "Resumen operativo de asistencia, personas y dispositivos",
   attendance: "Marcacion biometrica por camara, movil y dispositivos edge",
   register: "Escaneo facial en vivo con malla 3D y validacion automatica",
   scan: "Reconocimiento facial en vivo con anti-spoofing",
   users: "Colaboradores con perfil facial activo",
   reports: "Consulta, filtra y corrige marcas de asistencia",
   incidents: "Salidas anticipadas y violaciones de politica",
-  organization: "Datos principales de la empresa y sedes",
-  areas: "Catalogo jerarquico usado para codigos de empleados",
+  organization: "Perfil corporativo, sedes y datos legales",
+  areas: "Mapa organizacional usado para codigos de empleados",
   schedules: "Turnos TM/TT, asignacion y reglas de tardanza",
   preregistration: "Pre-registro masivo para app movil con token seguro",
   devices: "Camaras, kioskos y PCs autorizadas para marcar asistencia",
@@ -188,6 +192,27 @@ function openDashboardView(viewKey) {
   setViewHeader(viewKey);
 }
 
+function setMobileMenuOpen(isOpen) {
+  document.body.classList.toggle("mobile-menu-open", isOpen);
+  mobileMenuToggle?.setAttribute("aria-expanded", String(isOpen));
+  if (mobileMenuBackdrop) mobileMenuBackdrop.hidden = !isOpen;
+}
+
+function closeMobileMenu() {
+  setMobileMenuOpen(false);
+}
+
+mobileMenuToggle?.addEventListener("click", () => {
+  setMobileMenuOpen(!document.body.classList.contains("mobile-menu-open"));
+});
+mobileMenuBackdrop?.addEventListener("click", closeMobileMenu);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeMobileMenu();
+});
+window.addEventListener("resize", () => {
+  if (window.innerWidth > 860) closeMobileMenu();
+});
+
 document.querySelectorAll(".nav-item").forEach((button) => {
   button.addEventListener("click", () => {
     document.querySelectorAll(".nav-item").forEach((item) => item.classList.remove("active"));
@@ -195,6 +220,7 @@ document.querySelectorAll(".nav-item").forEach((button) => {
     button.classList.add("active");
     document.querySelector(`#view-${button.dataset.view}`).classList.add("active");
     setViewHeader(button.dataset.view);
+    closeMobileMenu();
     if (button.dataset.view !== "scan") {
       stopCamera();
     }
@@ -239,7 +265,7 @@ document.querySelector("#attendance-open-reports")?.addEventListener("click", ()
 document.querySelector("#attendance-refresh-events")?.addEventListener("click", () => {
   refreshEvents().catch(() => showToast("No se pudo actualizar actividad", 5000, "error"));
 });
-document.querySelector("#view-attendance")?.addEventListener("click", (event) => {
+document.addEventListener("click", (event) => {
   const button = event.target.closest("[data-open-view]");
   if (!button) return;
   openDashboardView(button.dataset.openView);
@@ -277,6 +303,7 @@ document.querySelector("#user-edit-cancel")?.addEventListener("click", closeUser
 showInactiveUsersInput?.addEventListener("change", renderRegisteredUsers);
 userPhotoInput?.addEventListener("change", handleQuickPhotoSelected);
 organizationForm?.addEventListener("submit", submitOrganizationForm);
+organizationForm?.addEventListener("input", handleOrganizationThemePreview);
 areaForm?.addEventListener("submit", submitAreaForm);
 positionForm?.addEventListener("submit", submitPositionForm);
 deviceForm?.addEventListener("submit", submitDeviceForm);
@@ -290,6 +317,7 @@ document.querySelector("#admin-devices-list")?.addEventListener("click", handleA
 shiftAssignmentForm?.addEventListener("submit", submitShiftAssignmentForm);
 preRegisterForm?.addEventListener("submit", submitPreRegisterForm);
 preRegisterAreaSelect?.addEventListener("change", handlePreRegisterAreaChange);
+shiftRosterSearch?.addEventListener("input", renderEmployeesByShift);
 document.querySelector("#pre-registrations-list")?.addEventListener("click", handlePreRegistrationAction);
 document.querySelector("#reload-pre-registrations")?.addEventListener("click", () => {
   refreshPreRegistrations(true).catch(() => showToast("No se pudo recargar tokens", 5000, "error"));
@@ -395,6 +423,8 @@ function renderAdminViews() {
   renderAreasAndPositions();
   renderDevicesAdmin();
   renderSettingsForm();
+  applyBrandTheme(state.admin?.organization);
+  renderDashboard();
 }
 
 function renderOrganizationForm() {
@@ -406,27 +436,125 @@ function renderOrganizationForm() {
   formField(organizationForm, "logo_url").value = org.logo_url || "";
   formField(organizationForm, "address").value = org.address || "";
   formField(organizationForm, "timezone").value = org.timezone || "America/Lima";
+  formField(organizationForm, "brand_primary_color").value = normalizeHexColor(org.brand_primary_color, "#0d9488");
+  formField(organizationForm, "brand_accent_color").value = normalizeHexColor(org.brand_accent_color, "#2563eb");
+  formField(organizationForm, "brand_sidebar_color").value = normalizeHexColor(org.brand_sidebar_color, "#101827");
   formField(organizationForm, "sites").value = (org.sites || [])
     .map((site) => [site.code, site.name, site.address || "", site.is_active === false ? "inactive" : "active"].join(" | "))
     .join("\n");
+  applyBrandTheme(org);
   const summary = document.querySelector("#organization-summary");
   if (summary) {
+    const sites = org.sites || [];
+    const activeSites = sites.filter((site) => site.is_active !== false);
+    const initials = getInitials(org.name || org.code || "IA");
     summary.innerHTML = `
-      <article class="admin-summary-item">
-        <span>Empresa</span>
-        <strong>${escapeHtml(org.name || "-")}</strong>
+      <article class="company-card">
+        <div class="company-avatar">${escapeHtml(initials)}</div>
+        <div>
+          <span class="section-kicker">Empresa activa</span>
+          <strong>${escapeHtml(org.name || "Empresa sin nombre")}</strong>
+          <small>${escapeHtml(org.address || "Direccion principal pendiente")}</small>
+        </div>
       </article>
-      <article class="admin-summary-item">
-        <span>RUC</span>
-        <strong>${escapeHtml(org.ruc || "Pendiente")}</strong>
-      </article>
-      <article class="admin-summary-item">
-        <span>Sedes</span>
-        <strong>${(org.sites || []).length}</strong>
-      </article>
+      <div class="company-kpis">
+        <article class="admin-summary-item">
+          <span>RUC</span>
+          <strong>${escapeHtml(org.ruc || "Pendiente")}</strong>
+        </article>
+        <article class="admin-summary-item">
+          <span>Codigo</span>
+          <strong>${escapeHtml(org.code || "-")}</strong>
+        </article>
+        <article class="admin-summary-item">
+          <span>Sedes activas</span>
+          <strong>${activeSites.length}/${sites.length}</strong>
+        </article>
+        <article class="admin-summary-item">
+          <span>Zona horaria</span>
+          <strong>${escapeHtml(org.timezone || "America/Lima")}</strong>
+        </article>
+      </div>
+      <div class="site-list">
+        <h3>Sedes registradas</h3>
+        ${
+          sites.length
+            ? sites
+                .map((site) => {
+                  const siteAddress = effectiveSiteAddress(site, org);
+                  return `
+                  <article class="site-row">
+                    <div>
+                      <strong>${escapeHtml(site.name || site.code)}</strong>
+                      <small>${escapeHtml(siteAddress || "Sin direccion")}</small>
+                    </div>
+                    <span class="badge ${site.is_active === false ? "bad" : "ok"}">${site.is_active === false ? "Inactiva" : "Activa"}</span>
+                  </article>
+                `;
+                })
+                .join("")
+            : emptyAdminState("Sin sedes", "Agrega sedes para separar operaciones y dispositivos")
+        }
+      </div>
     `;
   }
   renderAdminWarnings();
+}
+
+function effectiveSiteAddress(site, org) {
+  const ownAddress = String(site?.address || "").trim();
+  if (ownAddress) return ownAddress;
+  const code = String(site?.code || "").trim().toUpperCase();
+  const name = String(site?.name || "").trim().toLowerCase();
+  if (code === "HQ" || name.includes("principal")) {
+    return org?.address || "";
+  }
+  return "";
+}
+
+function applyBrandTheme(org) {
+  const primary = normalizeHexColor(org?.brand_primary_color, "#0d9488");
+  const accent = normalizeHexColor(org?.brand_accent_color, "#2563eb");
+  const sidebar = normalizeHexColor(org?.brand_sidebar_color, "#101827");
+  const root = document.documentElement;
+  root.style.setProperty("--accent", primary);
+  root.style.setProperty("--accent-hover", shadeHex(primary, -18));
+  root.style.setProperty("--accent-soft", rgbaHex(primary, 0.16));
+  root.style.setProperty("--accent-glow", rgbaHex(primary, 0.22));
+  root.style.setProperty("--blue", accent);
+  root.style.setProperty("--blue-soft", rgbaHex(accent, 0.14));
+  root.style.setProperty("--sidebar-bg", sidebar);
+}
+
+function normalizeHexColor(value, fallback) {
+  const text = String(value || "").trim();
+  return /^#[0-9a-f]{6}$/i.test(text) ? text : fallback;
+}
+
+function hexToRgb(hex) {
+  const normalized = normalizeHexColor(hex, "#0d9488").slice(1);
+  return {
+    r: parseInt(normalized.slice(0, 2), 16),
+    g: parseInt(normalized.slice(2, 4), 16),
+    b: parseInt(normalized.slice(4, 6), 16),
+  };
+}
+
+function rgbaHex(hex, alpha) {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function shadeHex(hex, percent) {
+  const { r, g, b } = hexToRgb(hex);
+  const shift = (channel) => {
+    const target = percent < 0 ? 0 : 255;
+    const amount = Math.abs(percent) / 100;
+    return Math.round(channel + (target - channel) * amount);
+  };
+  return `#${[shift(r), shift(g), shift(b)]
+    .map((channel) => channel.toString(16).padStart(2, "0"))
+    .join("")}`;
 }
 
 function renderAreasAndPositions() {
@@ -492,7 +620,52 @@ function renderAreasAndPositions() {
           .join("")
       : emptyAdminState("Sin cargos", "Crea cargos dentro de cada area");
   }
+  renderOrganizationHierarchy(areas, positions);
   renderAdminWarnings();
+}
+
+function renderOrganizationHierarchy(areas, positions) {
+  const hierarchy = document.querySelector("#admin-hierarchy-list");
+  if (!hierarchy) return;
+  if (!areas.length) {
+    hierarchy.innerHTML = emptyAdminState("Sin estructura", "Crea areas y cargos para ver el mapa organizacional");
+    return;
+  }
+  hierarchy.innerHTML = areas
+    .slice()
+    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
+    .map((area) => {
+      const areaPositions = positions
+        .filter((position) => position.area_code === area.code)
+        .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+      return `
+        <article class="org-node ${area.is_active ? "" : "inactive"}">
+          <div class="org-node-header">
+            <div>
+              <span class="section-kicker">${escapeHtml(area.code)}</span>
+              <strong>${escapeHtml(area.name)}</strong>
+              <small>${areaPositions.length} cargo(s) asociados</small>
+            </div>
+            <span class="badge ${area.is_active ? "ok" : "bad"}">${area.is_active ? "Activa" : "Inactiva"}</span>
+          </div>
+          <div class="position-chip-list">
+            ${
+              areaPositions.length
+                ? areaPositions
+                    .map((position) => `
+                      <span class="position-chip ${position.is_active ? "" : "inactive"}">
+                        <b>${escapeHtml(position.code)}</b>
+                        ${escapeHtml(position.name)}
+                      </span>
+                    `)
+                    .join("")
+                : '<span class="position-chip muted">Sin cargos asignados</span>'
+            }
+          </div>
+        </article>
+      `;
+    })
+    .join("");
 }
 
 function renderDevicesAdmin() {
@@ -581,6 +754,16 @@ function formField(form, name) {
   return form.elements[name];
 }
 
+function handleOrganizationThemePreview(event) {
+  if (!event.target?.matches?.('input[type="color"]')) return;
+  applyBrandTheme({
+    ...(state.admin?.organization || {}),
+    brand_primary_color: formField(organizationForm, "brand_primary_color")?.value,
+    brand_accent_color: formField(organizationForm, "brand_accent_color")?.value,
+    brand_sidebar_color: formField(organizationForm, "brand_sidebar_color")?.value,
+  });
+}
+
 async function submitOrganizationForm(event) {
   event.preventDefault();
   const submitBtn = organizationForm?.querySelector('[type="submit"]');
@@ -593,6 +776,9 @@ async function submitOrganizationForm(event) {
     ruc: String(form.get("ruc") || "").trim() || null,
     logo_url: String(form.get("logo_url") || "").trim() || null,
     address: String(form.get("address") || "").trim() || null,
+    brand_primary_color: normalizeHexColor(form.get("brand_primary_color"), "#0d9488"),
+    brand_accent_color: normalizeHexColor(form.get("brand_accent_color"), "#2563eb"),
+    brand_sidebar_color: normalizeHexColor(form.get("brand_sidebar_color"), "#101827"),
     sites: parseSites(String(form.get("sites") || "")),
   };
   try {
@@ -903,9 +1089,48 @@ function renderShiftOptions() {
 }
 
 function renderSchedulesView() {
+  renderScheduleSummary();
   renderShiftCards();
   renderShiftRules();
   renderEmployeesByShift();
+}
+
+function renderScheduleSummary() {
+  const container = document.querySelector("#shift-summary");
+  if (!container) return;
+  const schedule = state.schedule;
+  if (!schedule) {
+    container.innerHTML = `
+      <article><span>Total empleados</span><strong>--</strong></article>
+      <article><span>Asignados</span><strong>--</strong></article>
+      <article><span>Sin turno</span><strong>--</strong></article>
+      <article><span>Cobertura</span><strong>--</strong></article>
+    `;
+    return;
+  }
+  const shifts = schedule.shifts || [];
+  const assigned = shifts.reduce((total, shift) => total + employeesForShift(shift.code).length, 0);
+  const unassigned = employeesForShift("SIN_TURNO").length;
+  const totalEmployees = Math.max(getScheduleEmployees().length, assigned + unassigned);
+  const coverage = totalEmployees ? Math.round((assigned / totalEmployees) * 100) : 0;
+  container.innerHTML = `
+    <article>
+      <span>Total empleados</span>
+      <strong>${totalEmployees}</strong>
+    </article>
+    <article>
+      <span>Asignados</span>
+      <strong>${assigned}</strong>
+    </article>
+    <article class="${unassigned ? "summary-warn" : "summary-ok"}">
+      <span>Sin turno</span>
+      <strong>${unassigned}</strong>
+    </article>
+    <article class="${coverage >= 90 ? "summary-ok" : "summary-warn"}">
+      <span>Cobertura</span>
+      <strong>${coverage}%</strong>
+    </article>
+  `;
 }
 
 function renderShiftCards() {
@@ -915,20 +1140,25 @@ function renderShiftCards() {
   container.innerHTML = shifts.length
     ? shifts.map((shift) => {
         const tardyFrom = addMinutesToTimeLabel(shift.start_time, (shift.tolerance_minutes || 0) + 1);
+        const assignedCount = employeesForShift(shift.code).length;
         return `
           <article class="shift-card">
             <div class="shift-card-header">
               <span class="shift-code">${escapeHtml(shift.code)}</span>
               <span class="badge ${shift.is_active ? "ok" : "bad"}">${shift.is_active ? "Activo" : "Inactivo"}</span>
             </div>
-            <strong>${escapeHtml(shift.name)}</strong>
-            <div class="shift-meta">
-              <span><b>Entrada:</b> ${formatTimeShort(shift.start_time)}</span>
-              <span><b>Salida:</b> ${formatTimeShort(shift.end_time)}</span>
-              <span><b>Horas:</b> ${shift.work_hours}</span>
-              <span><b>Tolerancia:</b> ${shift.tolerance_minutes} min</span>
-              <span><b>Tardanza desde:</b> ${tardyFrom}</span>
-              <span><b>Salida anticipada:</b> antes de ${formatTimeShort(shift.end_time)}</span>
+            <div class="shift-card-title">
+              <strong>${escapeHtml(shift.name)}</strong>
+              <small>${assignedCount} empleado(s) asignados</small>
+            </div>
+            <div class="shift-window">
+              <span><b>${formatTimeShort(shift.start_time)}</b><small>Entrada</small></span>
+              <span><b>${formatTimeShort(shift.end_time)}</b><small>Salida</small></span>
+              <span><b>${shift.work_hours}</b><small>Horas</small></span>
+            </div>
+            <div class="shift-rule-line">
+              <span>Tolerancia ${shift.tolerance_minutes} min</span>
+              <span>Tardanza desde ${tardyFrom}</span>
             </div>
           </article>
         `;
@@ -963,30 +1193,84 @@ function renderEmployeesByShift() {
     container.innerHTML = emptyAdminState("Cargando turnos", "Consultando asignaciones");
     return;
   }
-  const shifts = [...(schedule.shifts || []), { code: "SIN_TURNO", name: "Sin turno" }];
+  const query = String(shiftRosterSearch?.value || "").trim().toLowerCase();
+  const shifts = [...(schedule.shifts || []), { code: "SIN_TURNO", name: "Sin turno", isUnassigned: true }];
   container.innerHTML = shifts.map((shift) => {
-    const employees = schedule.employees_by_shift?.[shift.code] || [];
+    const employees = employeesForShift(shift.code);
+    const filteredEmployees = query
+      ? employees.filter((employee) => employeeMatchesRosterQuery(employee, query))
+      : employees;
+    const hiddenCount = employees.length - filteredEmployees.length;
+    const groupClass = shift.isUnassigned ? "shift-group unassigned" : "shift-group";
     return `
-      <section class="shift-group">
+      <section class="${groupClass}">
         <div class="shift-group-header">
-          <strong>${escapeHtml(shift.code)} - ${escapeHtml(shift.name)}</strong>
+          <div>
+            <span class="shift-code small">${escapeHtml(shift.code === "SIN_TURNO" ? "ST" : shift.code)}</span>
+            <strong>${escapeHtml(shift.name)}</strong>
+          </div>
           <span class="count-pill">${employees.length} empleado(s)</span>
         </div>
-        <div class="admin-list">
-          ${employees.length
-            ? employees.map((employee) => `
-                <article class="admin-row">
+        <div class="shift-roster-list">
+          ${filteredEmployees.length
+            ? filteredEmployees.map((employee) => `
+                <article class="shift-worker">
+                  <span class="worker-avatar">${escapeHtml(getInitials(employee.name || employee.person_id))}</span>
                   <div>
-                    <strong>${escapeHtml(employee.name)}</strong>
-                    <small><code>${escapeHtml(employee.employee_code || employee.person_id)}</code> - ${escapeHtml(employee.area_name || "Sin area")} - ${escapeHtml(employee.position_name || "Sin cargo")} - ${escapeHtml(employee.schedule_label || "Sin horario")}</small>
+                    <strong>${escapeHtml(employee.name || "Sin nombre")}</strong>
+                    <small><code>${escapeHtml(employee.employee_code || employee.person_id)}</code> ${escapeHtml(employee.area_name || "Sin area")} / ${escapeHtml(employee.position_name || "Sin cargo")}</small>
                   </div>
                 </article>
               `).join("")
-            : emptyAdminState("Sin empleados", "No hay empleados en este grupo")}
+            : emptyAdminState(
+                query ? "Sin coincidencias" : "Sin empleados",
+                query ? "Prueba con otro nombre, codigo o area" : "No hay empleados en este grupo",
+              )}
         </div>
+        ${hiddenCount > 0 ? `<p class="shift-filter-note">${hiddenCount} oculto(s) por el filtro</p>` : ""}
       </section>
     `;
   }).join("");
+}
+
+function getScheduleEmployees() {
+  const schedule = state.schedule;
+  if (!schedule) return [];
+  if (Array.isArray(schedule.employees)) return schedule.employees;
+  const grouped = schedule.employees_by_shift || {};
+  const seen = new Set();
+  return Object.values(grouped)
+    .flat()
+    .filter((employee) => {
+      const key = employee.person_id || employee.employee_code || employee.name;
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function employeesForShift(shiftCode) {
+  const schedule = state.schedule;
+  if (!schedule) return [];
+  const grouped = schedule.employees_by_shift || {};
+  if (Array.isArray(grouped[shiftCode])) return grouped[shiftCode];
+  const employees = getScheduleEmployees();
+  if (shiftCode === "SIN_TURNO") {
+    return employees.filter((employee) => !employee.shift_code);
+  }
+  return employees.filter((employee) => employee.shift_code === shiftCode);
+}
+
+function employeeMatchesRosterQuery(employee, query) {
+  const haystack = [
+    employee.name,
+    employee.employee_code,
+    employee.person_id,
+    employee.area_name,
+    employee.position_name,
+    employee.schedule_label,
+  ].join(" ").toLowerCase();
+  return haystack.includes(query);
 }
 
 async function submitShiftAssignmentForm(event) {
@@ -1205,6 +1489,7 @@ async function refreshHealth() {
 async function refreshEvents() {
   const data = await requestJson("/api/v1/attendance/events?limit=50");
   state.events = data.events || [];
+  state.lastSyncAt = new Date();
   renderEvents();
 }
 
@@ -1825,10 +2110,128 @@ function updateFacesCountLabel() {
 }
 
 function renderDashboard() {
-  document.querySelector("#metric-events").textContent = state.events.length;
-  document.querySelector("#metric-incidents").textContent = state.incidents.length;
-  document.querySelector("#metric-faces").textContent = state.faces.length;
-  document.querySelector("#last-sync").textContent = `Actualizado ${new Date().toLocaleTimeString()}`;
+  const sortedEvents = getSortedEvents(state.events);
+  const todayEvents = sortedEvents.filter(isTodayEvent);
+  const todayCheckIns = todayEvents.filter((event) => event.event_type === "check_in").length;
+  const todayCheckOuts = todayEvents.filter((event) => event.event_type === "check_out").length;
+  const activeFaces = (state.faces || []).filter((face) => face.is_active !== false).length;
+  const recentTotal = state.events.length;
+  const devices = state.admin?.devices || [];
+  const activeDevices = devices.filter((device) => device.is_active !== false);
+  const onlineDevices = activeDevices.filter((device) => device.online);
+  const cameraDeviceId = state.admin?.settings?.camera_device_id || "dashboard-camera-001";
+
+  setText("#metric-events", todayEvents.length);
+  setText("#metric-events-sub", `Total reciente: ${recentTotal}`);
+  setText("#metric-incidents", state.incidents.length);
+  setText("#metric-incidents-sub", state.incidents.length === 1 ? "Caso abierto" : "Casos abiertos");
+  setText("#metric-faces", activeFaces);
+  setText("#metric-faces-sub", `Total perfiles: ${state.faces.length}`);
+  setText("#metric-device", devices.length ? `${onlineDevices.length}/${activeDevices.length}` : "--");
+  setText("#metric-device-sub", devices.length ? "Online / activos" : cameraDeviceId);
+
+  const lastSyncLabel = state.lastSyncAt
+    ? `Actualizado ${state.lastSyncAt.toLocaleTimeString()}`
+    : "Sin sincronizar";
+  setText("#last-sync", lastSyncLabel);
+
+  const latestEvent = sortedEvents[0];
+  const mainStatus = document.querySelector("#overview-main-status");
+  const mainDetail = document.querySelector("#overview-main-detail");
+  if (mainStatus) {
+    mainStatus.textContent = todayEvents.length
+      ? `${todayEvents.length} marca(s) registradas hoy`
+      : "Sin marcas registradas hoy";
+  }
+  if (mainDetail) {
+    mainDetail.textContent = latestEvent
+      ? `Ultima marca recibida: ${eventTypeLabel(latestEvent.event_type)} de ${latestEvent.employee_name || latestEvent.person_id} el ${formatDate(latestEvent.captured_at)}.`
+      : "El panel se actualiza automaticamente cada 30 segundos.";
+  }
+
+  renderOverviewInsights({
+    todayEvents,
+    todayCheckIns,
+    todayCheckOuts,
+    activeFaces,
+    latestEvent,
+    onlineDevices,
+    activeDevices,
+  });
+}
+
+function setText(selector, value) {
+  const node = document.querySelector(selector);
+  if (node) node.textContent = String(value);
+}
+
+function getSortedEvents(events) {
+  return (events || [])
+    .slice()
+    .sort((a, b) => eventTimestamp(b) - eventTimestamp(a));
+}
+
+function eventTimestamp(event) {
+  const date = event?.captured_at ? new Date(event.captured_at) : null;
+  return date && !Number.isNaN(date.getTime()) ? date.getTime() : 0;
+}
+
+function isTodayEvent(event) {
+  return dateKeyLocal(event?.captured_at) === dateKeyLocal(new Date());
+}
+
+function dateKeyLocal(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!date || Number.isNaN(date.getTime())) return "";
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function renderOverviewInsights(summary) {
+  const container = document.querySelector("#overview-insights");
+  if (!container) return;
+  const latestDetail = summary.latestEvent
+    ? `${summary.latestEvent.employee_name || summary.latestEvent.person_id} - ${formatDate(summary.latestEvent.captured_at)}`
+    : "Aun no hay marcas cargadas";
+  const deviceDetail = summary.activeDevices.length
+    ? `${summary.onlineDevices.length} online de ${summary.activeDevices.length} activo(s)`
+    : "Registra dispositivos para medir actividad";
+  const insights = [
+    {
+      tone: summary.todayEvents.length ? "ok" : "warn",
+      title: summary.todayEvents.length ? "Operacion activa hoy" : "Sin actividad de hoy",
+      detail: summary.todayEvents.length
+        ? `${summary.todayCheckIns} entrada(s) y ${summary.todayCheckOuts} salida(s).`
+        : "Los registros visibles pertenecen a dias anteriores.",
+    },
+    {
+      tone: summary.activeFaces ? "ok" : "bad",
+      title: "Base facial",
+      detail: `${summary.activeFaces} rostro(s) activo(s) para reconocimiento.`,
+    },
+    {
+      tone: summary.onlineDevices.length ? "ok" : "warn",
+      title: "Dispositivos",
+      detail: deviceDetail,
+    },
+    {
+      tone: summary.latestEvent && isTodayEvent(summary.latestEvent) ? "ok" : "info",
+      title: "Ultima marca",
+      detail: latestDetail,
+    },
+  ];
+  container.innerHTML = insights
+    .map((item) => `
+      <article class="insight ${item.tone}">
+        <span></span>
+        <div>
+          <strong>${escapeHtml(item.title)}</strong>
+          <small>${escapeHtml(item.detail)}</small>
+        </div>
+      </article>
+    `)
+    .join("");
 }
 
 function eventTypeLabel(eventType) {
@@ -1849,9 +2252,7 @@ function buildEventListMarkup(events, emptyCopy) {
   }
   return {
     className: "event-list",
-    html: events
-      .slice()
-      .reverse()
+    html: getSortedEvents(events)
       .slice(0, 12)
       .map((event) => {
         const status = event.duplicate ? "Duplicado" : (event.work_status_label || "Aceptado");
@@ -1859,17 +2260,18 @@ function buildEventListMarkup(events, emptyCopy) {
           ? "warn"
           : (event.work_status === "early_exit" ? "bad" : "ok");
         const typeClass = event.event_type === "check_out" ? "check-out" : "check-in";
-        const source = event.source ? ` · ${escapeHtml(event.source)}` : "";
+        const source = event.source ? ` | ${escapeHtml(event.source)}` : "";
+        const shift = event.shift_code ? ` | Turno ${escapeHtml(event.shift_code)}` : " | Sin turno";
         return `
           <article class="event-item">
             <div>
               <strong>${escapeHtml(event.employee_name || event.person_id)}</strong>
               <small>
                 <span class="event-type ${typeClass}">${eventTypeLabel(event.event_type)}</span>
-                · ${escapeHtml(event.device_id)}${source} · ${formatDate(event.captured_at)}
+                | ${escapeHtml(event.device_id)}${source}${shift} | ${formatDate(event.captured_at)}
               </small>
             </div>
-            <span class="badge ${badge}">${status}</span>
+            <span class="badge ${badge}">${escapeHtml(status)}</span>
           </article>
         `;
       })
@@ -1879,7 +2281,7 @@ function buildEventListMarkup(events, emptyCopy) {
 
 function renderEvents() {
   const overview = buildEventListMarkup(state.events, {
-    icon: "📭",
+    icon: "&#9638;",
     title: "Sin eventos todavia",
     subtitle: "Las marcas apareceran aqui al escanear con reconocimiento facial",
   });
@@ -1890,7 +2292,7 @@ function renderEvents() {
   }
 
   const live = buildEventListMarkup(state.events, {
-    icon: "◎",
+    icon: "&#9673;",
     title: "Sin marcas biometricas todavia",
     subtitle: "Inicia el escaner facial para registrar la primera entrada",
   });
@@ -1903,13 +2305,10 @@ function renderEvents() {
 }
 
 function renderAttendanceOps() {
-  const todayKey = new Date().toISOString().slice(0, 10);
   let checkIns = 0;
   let checkOuts = 0;
   for (const event of state.events) {
-    const captured = event.captured_at ? new Date(event.captured_at) : null;
-    if (!captured || Number.isNaN(captured.getTime())) continue;
-    if (captured.toISOString().slice(0, 10) !== todayKey) continue;
+    if (!isTodayEvent(event)) continue;
     if (event.event_type === "check_in") checkIns += 1;
     if (event.event_type === "check_out") checkOuts += 1;
   }
@@ -2698,13 +3097,13 @@ function hideLivenessSteps() {
 const LIVENESS_STEP_TIMING = {
   front: { prepMs: 1200, countdownSec: 2, actionCue: null, burst: false },
   movement: { prepMs: 1500, countdownSec: 2, actionCue: "turnNow", burst: false },
-  blink: { prepMs: 1400, countdownSec: 2, actionCue: "blinkNow", burst: true },
+  blink: { prepMs: 700, countdownSec: 0, actionCue: null, burst: false },
   smile: { prepMs: 1400, countdownSec: 2, actionCue: "smileNow", burst: true },
 };
 const SPEECH_PHRASES = {
   front: "Mira de frente a la camara, con buena luz.",
   movement: "Gira un poco la cabeza hacia un lado.",
-  blink: "Prepárate. En un momento debes parpadear.",
+  blink: "Mira a la camara. Parpadea de forma natural cuando estes listo.",
   smile: "Prepárate. En un momento debes sonreir.",
   turnNow: "Gira la cabeza ahora.",
   blinkNow: "Parpadea ahora.",
@@ -2745,6 +3144,32 @@ function speechForLivenessStep(stepType) {
 }
 
 async function captureLivenessStep(step) {
+  if (step.type === "blink" && window.captureBlinkOnLiveClose && cameraPreview?.videoWidth) {
+    const spokenIntro = speechForLivenessStep(step.type) || step.prompt;
+    setScanResult("scanning", step.prompt, "Detectando parpadeo en vivo...");
+    setLivenessOverlayText("Mira a la camara con ojos abiertos");
+    speak(spokenIntro);
+    await sleep(700);
+    try {
+      return await window.captureBlinkOnLiveClose({
+        video: cameraPreview,
+        captureFrame: captureCameraFrame,
+        onStatus: setLivenessOverlayText,
+      });
+    } catch (error) {
+      console.warn("Parpadeo en vivo fallo, usando captura de respaldo:", error);
+      setLivenessOverlayText("Reintento: parpadea ahora...");
+      speak(SPEECH_PHRASES.blinkNow, { priority: true });
+      await sleep(400);
+      return window.captureBlinkBurstPickClosed(
+        cameraPreview,
+        captureCameraFrame,
+        8,
+        110,
+      );
+    }
+  }
+
   const timing = LIVENESS_STEP_TIMING[step.type] || LIVENESS_STEP_TIMING.front;
   const spokenIntro = speechForLivenessStep(step.type) || step.prompt;
   setScanResult("scanning", step.prompt, "Preparate, la captura es automatica...");
@@ -2796,6 +3221,34 @@ async function captureRegisterCameraFrame() {
 }
 
 async function captureRegisterLivenessStep(step) {
+  if (step.type === "blink" && window.captureBlinkOnLiveClose && registerCameraPreview?.videoWidth) {
+    const spokenIntro = speechForLivenessStep(step.type) || step.prompt;
+    setRegisterStatus("loading", step.prompt, "Detectando parpadeo en vivo...");
+    if (registerScanHint) registerScanHint.textContent = "Mira a la camara con ojos abiertos";
+    speak(spokenIntro);
+    await sleep(700);
+    try {
+      return await window.captureBlinkOnLiveClose({
+        video: registerCameraPreview,
+        captureFrame: captureRegisterCameraFrame,
+        onStatus: (text) => {
+          if (registerScanHint) registerScanHint.textContent = text;
+        },
+      });
+    } catch (error) {
+      console.warn("Parpadeo en vivo (registro) fallo, respaldo:", error);
+      if (registerScanHint) registerScanHint.textContent = "Reintento: parpadea ahora...";
+      speak(SPEECH_PHRASES.blinkNow, { priority: true });
+      await sleep(400);
+      return window.captureBlinkBurstPickClosed?.(
+        registerCameraPreview,
+        captureRegisterCameraFrame,
+        8,
+        110,
+      ) ?? captureRegisterCameraFrame();
+    }
+  }
+
   const timing = LIVENESS_STEP_TIMING[step.type] || LIVENESS_STEP_TIMING.front;
   const spokenIntro = speechForLivenessStep(step.type) || step.prompt;
   setRegisterStatus("loading", step.prompt, "Preparate, la captura es automatica...");
