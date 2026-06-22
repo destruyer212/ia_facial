@@ -53,10 +53,33 @@ const state = {
 };
 
 const DEFAULT_API_BASE = "http://104.238.215.26";
+const API_BASE_STORAGE_KEY = "ia_facial_api_base";
 const apiBaseInput = document.querySelector("#api-base");
+const apiSettingsForm = document.querySelector("#api-settings-form");
+
+function loadStoredApiBase() {
+  try {
+    return localStorage.getItem(API_BASE_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredApiBase(url) {
+  try {
+    localStorage.setItem(API_BASE_STORAGE_KEY, url);
+  } catch {
+    // ignore storage errors
+  }
+}
 
 function initApiBaseDefault() {
   if (!apiBaseInput) return;
+  const stored = loadStoredApiBase();
+  if (stored) {
+    apiBaseInput.value = stored;
+    return;
+  }
   const current = apiBaseInput.value.trim();
   if (
     !current ||
@@ -65,6 +88,19 @@ function initApiBaseDefault() {
     current.includes("onrender.com")
   ) {
     apiBaseInput.value = DEFAULT_API_BASE;
+  }
+}
+
+function syncSettingsApiStatus() {
+  const sidebarDot = document.querySelector("#api-status-dot");
+  const sidebarLabel = document.querySelector("#api-status-label");
+  const settingsDot = document.querySelector("#settings-api-status-dot");
+  const settingsLabel = document.querySelector("#settings-api-status-label");
+  if (!sidebarDot || !settingsDot) return;
+
+  settingsDot.className = sidebarDot.className;
+  if (settingsLabel && sidebarLabel) {
+    settingsLabel.textContent = sidebarLabel.textContent;
   }
 }
 const toast = document.querySelector("#toast");
@@ -243,6 +279,9 @@ document.querySelectorAll(".nav-item").forEach((button) => {
     if (["organization", "areas", "devices", "settings"].includes(button.dataset.view)) {
       refreshAdminOverview().catch(() => showToast("No se pudo cargar administracion", 5000, "error"));
     }
+    if (button.dataset.view === "settings") {
+      syncSettingsApiStatus();
+    }
     if (button.dataset.view === "schedules") {
       refreshScheduleOverview(true).catch(() => showToast("No se pudo cargar horarios", 5000, "error"));
     }
@@ -310,6 +349,7 @@ areaForm?.addEventListener("submit", submitAreaForm);
 positionForm?.addEventListener("submit", submitPositionForm);
 deviceForm?.addEventListener("submit", submitDeviceForm);
 settingsForm?.addEventListener("submit", submitSettingsForm);
+apiSettingsForm?.addEventListener("submit", submitApiSettingsForm);
 document.querySelector("#reload-admin")?.addEventListener("click", () => {
   refreshAdminOverview(true).catch(() => showToast("No se pudo recargar administracion", 5000, "error"));
 });
@@ -872,6 +912,37 @@ async function submitDeviceForm(event) {
     await refreshAdminOverview(true);
   } catch (error) {
     showToast(parseApiError(error), 6000, "error");
+  }
+}
+
+async function submitApiSettingsForm(event) {
+  event.preventDefault();
+  if (!apiBaseInput) return;
+
+  const url = apiBaseInput.value.trim().replace(/\/$/, "");
+  if (!url) {
+    showToast("Ingresa la URL del servidor API.", 4000, "error");
+    return;
+  }
+
+  apiBaseInput.value = url;
+  saveStoredApiBase(url);
+  setApiStatus(false);
+  document.querySelector("#api-status-label").textContent = "Verificando...";
+  syncSettingsApiStatus();
+
+  try {
+    const ok = await probeApiConnection();
+    if (ok) {
+      showToast("Conexion guardada y verificada.", 4000, "success");
+      await refreshAll();
+    } else {
+      showToast("URL guardada, pero el servidor no responde.", 6000, "error");
+    }
+  } catch (error) {
+    showToast(parseApiError(error), 6000, "error");
+  } finally {
+    syncSettingsApiStatus();
   }
 }
 
@@ -3816,9 +3887,25 @@ async function fetchWithTimeout(url, options, timeoutMs) {
 function setApiStatus(ok) {
   const dot = document.querySelector("#api-status-dot");
   const label = document.querySelector("#api-status-label");
-  dot.classList.toggle("ok", ok);
-  dot.classList.toggle("bad", !ok);
-  label.textContent = ok ? "Conectado" : "Sin conexion";
+  if (dot) {
+    dot.classList.toggle("ok", ok);
+    dot.classList.toggle("bad", !ok);
+  }
+  if (label) {
+    label.textContent = ok ? "Conectado" : "Sin conexion";
+  }
+  syncSettingsApiStatus();
+}
+
+async function probeApiConnection() {
+  try {
+    await requestJson("/api/v1/health", { timeoutMs: 8000 });
+    setApiStatus(true);
+    return true;
+  } catch {
+    setApiStatus(false);
+    return false;
+  }
 }
 
 function showToast(message, durationMs = 3200, tone = "info") {

@@ -6,6 +6,7 @@ import '../api/face_api_client.dart';
 import '../config/api_config.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_screen_shell.dart';
+import 'app_settings_screen.dart';
 
 class TokenScreen extends StatefulWidget {
   const TokenScreen({
@@ -25,21 +26,24 @@ class TokenScreen extends StatefulWidget {
 
 class _TokenScreenState extends State<TokenScreen> {
   final _tokenController = TextEditingController();
-  final _baseUrlController = TextEditingController();
   bool _loading = false;
   String? _error;
 
   @override
-  void initState() {
-    super.initState();
-    _baseUrlController.text = widget.baseUrl;
-  }
-
-  @override
   void dispose() {
     _tokenController.dispose();
-    _baseUrlController.dispose();
     super.dispose();
+  }
+
+  Future<void> _openSettings() async {
+    final newUrl = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => AppSettingsScreen(initialBaseUrl: widget.baseUrl),
+      ),
+    );
+    if (newUrl != null && newUrl.isNotEmpty) {
+      widget.onBaseUrlChanged(newUrl);
+    }
   }
 
   Future<void> _validate() async {
@@ -55,8 +59,7 @@ class _TokenScreenState extends State<TokenScreen> {
     });
 
     try {
-      widget.onBaseUrlChanged(_baseUrlController.text);
-      final client = FaceApiClient(baseUrl: _baseUrlController.text.trim());
+      final client = FaceApiClient(baseUrl: widget.baseUrl.trim());
       final response = await client.validateRegistrationToken(token);
       final valid = response['valid'] == true;
       if (!valid) {
@@ -79,13 +82,13 @@ class _TokenScreenState extends State<TokenScreen> {
       setState(() => _error = error.body);
     } on SocketException {
       setState(() => _error =
-          'Sin conexion al servidor. Verifica tu internet y la URL $kProductionApiBaseUrl');
+          'Sin conexion al servidor. Ve a Configuracion y revisa la URL ($kProductionApiBaseUrl).');
     } catch (error) {
       final message = error.toString();
       if (message.contains('Connection timed out') ||
           message.contains('10.0.2.2')) {
         setState(() => _error =
-            'No llega al servidor. Usa: $kProductionApiBaseUrl');
+            'No llega al servidor. Ve a Configuracion y usa: $kProductionApiBaseUrl');
         return;
       }
       setState(() => _error = 'No se pudo validar el token: $error');
@@ -101,6 +104,14 @@ class _TokenScreenState extends State<TokenScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _loading ? null : _openSettings,
+              icon: const Icon(Icons.settings_outlined, size: 18),
+              label: const Text('Configuracion'),
+            ),
+          ),
           const BrandHeader(
             title: 'Ingresa tu token',
             subtitle:
@@ -114,32 +125,19 @@ class _TokenScreenState extends State<TokenScreen> {
               borderRadius: BorderRadius.circular(18),
               border: Border.all(color: AppColors.border),
             ),
-            child: Column(
-              children: [
-                TextField(
-                  controller: _baseUrlController,
-                  style: const TextStyle(color: AppColors.textPrimary),
-                  decoration: const InputDecoration(
-                    labelText: 'Servidor',
-                    prefixIcon: Icon(Icons.cloud_outlined, color: AppColors.accent),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: _tokenController,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    letterSpacing: 1.2,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  decoration: const InputDecoration(
-                    labelText: 'Token de registro',
-                    prefixIcon: Icon(Icons.vpn_key_outlined, color: AppColors.accent),
-                  ),
-                  textInputAction: TextInputAction.done,
-                  onSubmitted: (_) => _validate(),
-                ),
-              ],
+            child: TextField(
+              controller: _tokenController,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                letterSpacing: 1.2,
+                fontWeight: FontWeight.w600,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Token de registro',
+                prefixIcon: Icon(Icons.vpn_key_outlined, color: AppColors.accent),
+              ),
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _validate(),
             ),
           ),
           if (_error != null) ...[

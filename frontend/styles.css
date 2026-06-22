@@ -374,6 +374,28 @@ h1, h2, h3, p {
   transition: border-color var(--transition), box-shadow var(--transition);
 }
 
+.settings-connection-panel {
+  margin-bottom: 18px;
+}
+
+.settings-api-form {
+  max-width: 720px;
+}
+
+.settings-api-input {
+  width: 100%;
+  max-width: none;
+}
+
+.settings-api-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 /* ─── Buttons ─── */
 .icon-btn,
 .ghost-btn,

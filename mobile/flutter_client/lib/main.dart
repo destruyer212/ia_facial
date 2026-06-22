@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'api/face_api_client.dart';
 import 'config/api_config.dart';
+import 'config/api_preferences.dart';
 import 'screens/confirmation_screen.dart';
 import 'screens/face_capture_screen.dart';
 import 'screens/liveness_challenge_screen.dart';
@@ -56,15 +57,35 @@ enum _RegistrationStep { token, workerData, liveness, capture, confirmation }
 class _TokenRegistrationFlowState extends State<TokenRegistrationFlow> {
   static const _defaultBaseUrl = kProductionApiBaseUrl;
 
-  late FaceApiClient _apiClient = FaceApiClient(
+  FaceApiClient _apiClient = FaceApiClient(
     baseUrl: _defaultBaseUrl,
     profileUploadTimeout: const Duration(minutes: 10),
   );
   String _baseUrl = _defaultBaseUrl;
+  bool _bootstrapping = true;
   _RegistrationStep _step = _RegistrationStep.token;
   String? _token;
   Map<String, dynamic>? _worker;
   Map<String, dynamic>? _registrationResult;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadApiBase();
+  }
+
+  Future<void> _loadApiBase() async {
+    final url = await ApiPreferences.load();
+    if (!mounted) return;
+    setState(() {
+      _baseUrl = url;
+      _apiClient = FaceApiClient(
+        baseUrl: url,
+        profileUploadTimeout: const Duration(minutes: 10),
+      );
+      _bootstrapping = false;
+    });
+  }
 
   void _restart() {
     setState(() {
@@ -77,6 +98,12 @@ class _TokenRegistrationFlowState extends State<TokenRegistrationFlow> {
 
   @override
   Widget build(BuildContext context) {
+    if (_bootstrapping) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     if (_step == _RegistrationStep.confirmation && _registrationResult != null) {
       return ConfirmationScreen(
         message: _registrationResult!['storage_message'] as String? ??

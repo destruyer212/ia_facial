@@ -120,10 +120,6 @@
           <p id="today-label" class="topbar-date"></p>
         </div>
         <div class="topbar-actions">
-          <label class="api-field">
-            <span>API</span>
-            <input id="api-base" class="api-input" value="http://104.238.215.26" />
-          </label>
           <button id="refresh-btn" class="icon-btn" type="button" title="Actualizar datos">
             <span aria-hidden="true">↻</span>
             Actualizar
@@ -541,6 +537,34 @@
       </section>
 
       <section class="view" id="view-settings">
+        <section class="panel settings-connection-panel">
+          <div class="panel-header">
+            <div>
+              <h2>Conexion al servidor</h2>
+              <p class="panel-desc">URL del backend API que usa este navegador</p>
+            </div>
+            <div class="settings-api-status">
+              <span id="settings-api-status-dot" class="status-dot"></span>
+              <small id="settings-api-status-label">Sin verificar</small>
+            </div>
+          </div>
+          <form id="api-settings-form" class="form-grid settings-api-form">
+            <label class="full-row">
+              URL del API
+              <input
+                id="api-base"
+                class="api-input settings-api-input"
+                type="url"
+                value="http://104.238.215.26"
+                placeholder="http://104.238.215.26"
+                required
+              />
+              <small class="field-hint">Ej: http://104.238.215.26 en produccion o http://127.0.0.1:8000 en desarrollo local</small>
+            </label>
+            <button class="primary-btn" type="submit">Guardar y probar conexion</button>
+          </form>
+        </section>
+
         <div class="admin-grid">
           <section class="panel">
             <div class="panel-header">
@@ -1258,10 +1282,10 @@
     </main>
 
     <script>
-      window.__IA_FACIAL_BUILD = "2026061701";
+      window.__IA_FACIAL_BUILD = "2026061702";
       console.info("[IA Facial] build", window.__IA_FACIAL_BUILD);
     </script>
-    <script src="./register-scanner.js?v=2026061701"></script>
-    <script src="./app.js?v=2026061701"></script>
+    <script src="./register-scanner.js?v=2026061702"></script>
+    <script src="./app.js?v=2026061702"></script>
   </body>
 </html>

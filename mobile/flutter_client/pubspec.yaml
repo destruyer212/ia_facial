@@ -2,7 +2,7 @@ name: ia_facial_mobile
 description: "App movil IA Facial Enterprise - registro facial por token"
 publish_to: 'none'
 
-version: 1.3.1+10
+version: 1.3.2+11
 
 environment:
   sdk: ^3.11.4
