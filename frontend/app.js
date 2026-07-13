@@ -52,10 +52,37 @@ const state = {
   lastSyncAt: null,
 };
 
-const DEFAULT_API_BASE = "http://104.238.215.26";
+const DEFAULT_API_BASE = "https://104.238.215.26";
 const API_BASE_STORAGE_KEY = "ia_facial_api_base";
 const apiBaseInput = document.querySelector("#api-base");
 const apiSettingsForm = document.querySelector("#api-settings-form");
+
+function resolveDefaultApiBase() {
+  if (window.location.protocol === "https:") {
+    return window.location.origin.replace(/\/$/, "");
+  }
+  const host = window.location.hostname;
+  if (host === "127.0.0.1" || host === "localhost") {
+    return "http://127.0.0.1:8000";
+  }
+  return DEFAULT_API_BASE;
+}
+
+function normalizeApiBaseUrl(url) {
+  const trimmed = String(url || "").trim().replace(/\/$/, "");
+  if (!trimmed) return resolveDefaultApiBase();
+  try {
+    const parsed = new URL(trimmed);
+    if (window.location.protocol === "https:" && parsed.protocol === "http:") {
+      if (parsed.hostname === window.location.hostname) {
+        return `${window.location.protocol}//${parsed.host}`;
+      }
+    }
+  } catch {
+    return resolveDefaultApiBase();
+  }
+  return trimmed;
+}
 
 function loadStoredApiBase() {
   try {
@@ -76,18 +103,20 @@ function saveStoredApiBase(url) {
 function initApiBaseDefault() {
   if (!apiBaseInput) return;
   const stored = loadStoredApiBase();
-  if (stored) {
-    apiBaseInput.value = stored;
-    return;
-  }
-  const current = apiBaseInput.value.trim();
+  let url = stored || apiBaseInput.value.trim() || resolveDefaultApiBase();
+  url = normalizeApiBaseUrl(url);
   if (
-    !current ||
-    current === "http://127.0.0.1:8000" ||
-    current === "http://localhost:8000" ||
-    current.includes("onrender.com")
+    !stored &&
+    (!url ||
+      url === "http://127.0.0.1:8000" ||
+      url === "http://localhost:8000" ||
+      url.includes("onrender.com"))
   ) {
-    apiBaseInput.value = DEFAULT_API_BASE;
+    url = resolveDefaultApiBase();
+  }
+  apiBaseInput.value = url;
+  if (stored !== url) {
+    saveStoredApiBase(url);
   }
 }
 
@@ -396,7 +425,8 @@ function pauseBackgroundRefresh(paused) {
 }
 
 function apiBase() {
-  return apiBaseInput.value.replace(/\/$/, "");
+  const raw = apiBaseInput?.value?.trim() || resolveDefaultApiBase();
+  return normalizeApiBaseUrl(raw);
 }
 
 async function refreshAll() {
