@@ -173,6 +173,38 @@ class LocalEmbeddingStore:
             return None
         return best
 
+    def find_top_matches(
+        self,
+        embedding: list[float],
+        model: str,
+        *,
+        limit: int = 5,
+        exclude_person_id: str | None = None,
+    ) -> list[MatchCandidate]:
+        candidates = [record for record in self._load() if record.model == model]
+        exclude = (exclude_person_id or "").strip()
+        best_by_person: dict[str, MatchCandidate] = {}
+
+        for record in candidates:
+            if not record.is_active:
+                continue
+            if exclude and record.person_id == exclude:
+                continue
+            distance = cosine_distance(embedding, record.embedding)
+            confidence = max(0.0, min(1.0, 1.0 - distance))
+            candidate = MatchCandidate(
+                person_id=record.person_id,
+                name=record.name,
+                model=record.model,
+                distance=round(distance, 6),
+                confidence=round(confidence, 6),
+            )
+            current = best_by_person.get(candidate.person_id)
+            if current is None or candidate.distance < current.distance:
+                best_by_person[candidate.person_id] = candidate
+
+        return sorted(best_by_person.values(), key=lambda item: item.distance)[:limit]
+
     def find_nearest_candidate(
         self,
         embedding: list[float],
@@ -477,6 +509,67 @@ class SupabaseEmbeddingStore:
             distance=round(distance, 6),
             confidence=round(float(row[4]), 6),
         )
+
+    def find_top_matches(
+        self,
+        embedding: list[float],
+        model: str,
+        *,
+        limit: int = 5,
+        exclude_person_id: str | None = None,
+    ) -> list[MatchCandidate]:
+        embedding_literal = "[" + ",".join(str(float(v)) for v in embedding) + "]"
+        exclude = (exclude_person_id or "").strip() or None
+        raw_limit = max(limit * 8, 40)
+        with get_conn() as conn:
+            org_id = resolve_org_id(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select
+                      e.person_id,
+                      p.full_name,
+                      e.model,
+                      (e.embedding <=> %s::vector(512))::real as distance,
+                      greatest(0, least(1, 1 - (e.embedding <=> %s::vector(512))))::real
+                        as confidence
+                    from public.face_embeddings e
+                    join public.persons p
+                      on p.person_id = e.person_id and p.org_id = e.org_id
+                    where e.org_id = %s
+                      and e.model = %s
+                      and p.is_active = true
+                      and (%s::text is null or e.person_id <> %s::text)
+                    order by e.embedding <=> %s::vector(512)
+                    limit %s
+                    """,
+                    (
+                        embedding_literal,
+                        embedding_literal,
+                        org_id,
+                        model,
+                        exclude,
+                        exclude,
+                        embedding_literal,
+                        raw_limit,
+                    ),
+                )
+                rows = cur.fetchall()
+
+        best_by_person: dict[str, MatchCandidate] = {}
+        for row in rows:
+            candidate = MatchCandidate(
+                person_id=row[0],
+                name=row[1],
+                model=row[2],
+                distance=round(float(row[3]), 6),
+                confidence=round(float(row[4]), 6),
+            )
+            current = best_by_person.get(candidate.person_id)
+            if current is None or candidate.distance < current.distance:
+                best_by_person[candidate.person_id] = candidate
+
+        return sorted(best_by_person.values(), key=lambda item: item.distance)[:limit]
 
     def find_nearest_candidate(
         self,

@@ -194,7 +194,6 @@ class LivenessService:
         passed = score >= self.min_pass_score and critical_ok and anti_spoof_ok
 
         if passed:
-            candidate = self._identify_from_front(front)
             response = LivenessVerifyResponse(
                 passed=True,
                 score=round(score, 3),
@@ -203,7 +202,7 @@ class LivenessService:
                 challenge_id=challenge_id,
                 method="mediapipe_v2",
                 anti_spoof_score=round(avg_spoof, 3),
-                candidate=candidate,
+                candidate=None,
             )
             return self._persist_and_return(response, challenge_id, person_id)
 
@@ -297,7 +296,7 @@ class LivenessService:
 
     def _matches_registered_person(self, frames: list[FrameAnalysis | None]) -> bool:
         """Si la captura frontal coincide con un empleado activo, es la misma persona."""
-        threshold = settings.face_scan_match_threshold
+        threshold = min(settings.face_scan_match_threshold, settings.face_scan_max_match_threshold)
         model = settings.active_face_model
 
         for frame in frames:

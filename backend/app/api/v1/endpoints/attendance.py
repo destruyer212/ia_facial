@@ -26,6 +26,7 @@ from app.services.attendance_event_store import (
 )
 from app.services.embedding_store import get_embedding_store
 from app.services.face_ai_service import FaceAIService
+from app.services.face_match_service import match_face_from_image
 from app.services.incident_store import get_incident_store
 from app.utils.image_files import remove_file, save_upload_to_temp_file
 
@@ -167,18 +168,14 @@ async def evaluate_exit_attempt_with_face(
 ) -> FaceExitAttemptResponse:
     image_path = await _persist_upload(file)
     try:
-        embedding = face_ai_service.create_embedding(image_path)
-        match = embedding_store.find_best_match(
-            embedding=embedding,
-            threshold=settings.face_match_threshold,
-            model=settings.active_face_model,
-        )
-        if match is None:
+        identity = match_face_from_image(image_path)
+        match = identity.candidate
+        if not identity.matched or match is None:
             return FaceExitAttemptResponse(
                 face_matched=False,
-                candidate=None,
+                candidate=identity.near_miss,
                 attendance=None,
-                message="Rostro no reconocido. No se puede validar salida.",
+                message=identity.message or "Rostro no reconocido. No se puede validar salida.",
             )
 
         attendance = attendance_service.evaluate_exit_attempt(

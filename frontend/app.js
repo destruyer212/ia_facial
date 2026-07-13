@@ -4294,15 +4294,8 @@ async function scanFromCamera(forcedEventType = null) {
         speak(speechForLivenessFailure(liveness), { priority: true });
         return;
       }
-      if (liveness.candidate?.person_id) {
-        identifyData = {
-          matched: true,
-          candidate: liveness.candidate,
-        };
-      } else {
-        setScanResult("scanning", "Rostro validado", "Identificando persona...");
-        if (scanOverlay) scanOverlay.textContent = "Identificando...";
-      }
+      setScanResult("scanning", "Rostro validado", "Identificando persona...");
+      if (scanOverlay) scanOverlay.textContent = "Identificando...";
     }
 
     if (!identifyData?.matched) {
@@ -4332,6 +4325,21 @@ async function scanFromCamera(forcedEventType = null) {
       const eventType = forcedEventType || state.camera.selectedEventType || "check_in";
       await registerAttendanceAfterScan(data, personName, eventType);
     } else {
+      if (data.ambiguous) {
+        const first = data.near_miss;
+        const second = data.second_candidate;
+        const firstLabel = first?.name || first?.person_id || "candidato 1";
+        const secondLabel = second?.name || second?.person_id || "candidato 2";
+        setScanResult(
+          "warn",
+          "Rostro ambiguo",
+          data.message || `Se parece a ${firstLabel} y ${secondLabel}. Repite el escaneo.`
+        );
+        setCameraStatus(`Ambiguo: ${firstLabel} / ${secondLabel}`);
+        showToast("Rostro ambiguo. No se marco asistencia.", 6000, "error");
+        speak("No puedo confirmar la identidad. Repite el escaneo.", { priority: true });
+        return;
+      }
       const near = data.near_miss;
       if (near?.name || near?.person_id) {
         const conf = Math.round((near.confidence || 0) * 100);

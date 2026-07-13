@@ -115,6 +115,9 @@ class IdentifyFaceResponse(BaseModel):
     threshold: float
     candidate: MatchCandidate | None = None
     near_miss: MatchCandidate | None = None
+    second_candidate: MatchCandidate | None = None
+    ambiguous: bool = False
+    message: str | None = None
 
 
 class RegisteredFacesResponse(BaseModel):

@@ -22,7 +22,9 @@ class Settings(BaseSettings):
     face_engine: str = "deepface"
     insightface_model: str = "buffalo_l"
     face_match_threshold: float = 0.35
-    face_scan_match_threshold: float = 0.52
+    face_scan_match_threshold: float = 0.40
+    face_scan_max_match_threshold: float = 0.40
+    face_scan_ambiguous_margin: float = 0.05
     liveness_max_same_person_distance: float = 0.52
     liveness_min_face_shift_px: float = 18.0
     liveness_ear_blink_max: float = 0.21
