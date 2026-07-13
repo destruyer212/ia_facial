@@ -1974,8 +1974,8 @@ async function handlePreRegistrationAction(event) {
 
 function showTokenResult(data) {
   const message = data?.message || "Operacion completada";
-  const devToken = data?.dev_token ? ` Token dev: ${data.dev_token}` : "";
-  showToast(`${message}${devToken}`, data?.dev_token ? 12000 : 5000, data?.email_sent ? "success" : "info");
+  const devNote = data?.dev_token ? " Token local disponible en el detalle tecnico." : "";
+  showToast(`${message}${devNote}`, data?.dev_token ? 9000 : 5000, data?.email_sent ? "success" : "info");
   const box = document.querySelector("#pre-register-result");
   if (box) {
     box.textContent = JSON.stringify(data, null, 2);

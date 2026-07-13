@@ -82,8 +82,12 @@ En la carpeta `backend/`:
 | Key | Value |
 |-----|-------|
 | `ENVIRONMENT` | `production` |
+| `EXPOSE_DEV_REGISTRATION_TOKEN` | `false` |
 
 En produccion el API **no** devuelve `dev_token`; el token solo va al correo del trabajador.
+Si ves `No se pudo refrescar OAuth de Gmail: HTTP 400`, el `token.json` de Gmail fue
+revocado, vencio o no corresponde a `credentials.json`: vuelve a generar `backend/token.json`,
+subelo al servidor y reinicia el backend.
 
 ### Paso 4: probar
 

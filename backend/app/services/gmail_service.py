@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from pathlib import Path
 from urllib import request
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 
 from app.core.config import settings
@@ -110,6 +110,8 @@ class GmailService:
                 if 200 <= response.status < 300:
                     return GmailSendResult(True, "Correo enviado por Gmail.")
                 return GmailSendResult(False, f"Gmail respondio HTTP {response.status}.")
+        except HTTPError as exc:
+            return GmailSendResult(False, f"Gmail rechazo el envio: {_format_http_error(exc)}")
         except Exception as exc:
             return GmailSendResult(False, f"No se pudo enviar Gmail: {exc}")
 
@@ -136,8 +138,17 @@ class GmailService:
         try:
             with request.urlopen(req, timeout=20) as response:
                 refreshed = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            detail = _format_http_error(exc)
+            if exc.code == 400:
+                detail = (
+                    f"{detail}. El token OAuth de Gmail esta vencido, revocado o no "
+                    "corresponde a credentials.json; regenera backend/token.json, "
+                    "subelo al VPS y reinicia el backend."
+                )
+            raise RuntimeError(f"No se pudo refrescar OAuth de Gmail: {detail}") from exc
         except URLError as exc:
-            raise RuntimeError(f"No se pudo refrescar token Gmail: {exc}") from exc
+            raise RuntimeError(f"No se pudo conectar con Gmail para refrescar OAuth: {exc}") from exc
         access_token = refreshed.get("access_token")
         if not access_token:
             raise RuntimeError("Gmail no devolvio access_token.")
@@ -180,3 +191,28 @@ def parse_expiry(value: str | None) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
+
+
+def _format_http_error(exc: HTTPError) -> str:
+    reason = str(exc.reason or "").strip()
+    detail = ""
+    try:
+        body = exc.read().decode("utf-8", errors="replace")
+    except Exception:
+        body = ""
+    if body:
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            detail = body[:240]
+        else:
+            error = payload.get("error")
+            if isinstance(error, dict):
+                detail = str(error.get("message") or error.get("status") or "")
+            elif isinstance(error, str):
+                detail = error
+            description = payload.get("error_description")
+            if description:
+                detail = f"{detail}: {description}" if detail else str(description)
+    suffix = detail or reason
+    return f"HTTP {exc.code}{': ' + suffix if suffix else ''}"

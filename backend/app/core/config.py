@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     # Gmail OAuth: local = backend/token.json; Render = Secret File o GMAIL_TOKEN_JSON
     gmail_token_path: str = ""
     gmail_token_json: str = ""
+    expose_dev_registration_token: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",

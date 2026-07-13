@@ -17,8 +17,10 @@ registration_service = get_registration_token_service()
 
 
 def _public_dev_token(dev_token: str | None, email_sent: bool) -> str | None:
-    """Solo en desarrollo local si Gmail falla; en produccion el token va por correo."""
+    """Solo para pruebas locales explicitas; en produccion el token va por correo."""
     if email_sent or not dev_token:
+        return None
+    if not settings.expose_dev_registration_token:
         return None
     if settings.environment.lower() == "production":
         return None
