@@ -155,7 +155,7 @@ class _TokenScreenState extends State<TokenScreen> {
               ),
             ),
           ],
-          const Spacer(),
+          const SizedBox(height: 32),
           FilledButton(
             onPressed: _loading ? null : _validate,
             child: _loading

@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_commons/google_mlkit_commons.dart';
-import 'dart:ui';
 
 final _orientations = {
   DeviceOrientation.portraitUp: 0,
@@ -67,4 +66,3 @@ Uint8List _concatenatePlanes(List<Plane> planes) {
   }
   return buffer.done().buffer.asUint8List();
 }
-
