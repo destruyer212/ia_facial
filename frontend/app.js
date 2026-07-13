@@ -374,6 +374,7 @@ const persistedBrandTheme = loadPersistedBrandTheme();
 if (persistedBrandTheme) {
   applyBrandTheme(persistedBrandTheme);
 }
+renderCameraSecurityBanners();
 refreshAll();
 refreshAdminOverview().catch(() => {});
 refreshScheduleOverview().catch(() => {});
@@ -2566,6 +2567,16 @@ async function startRegisterFaceScan() {
     return;
   }
 
+  const cameraBlocked = getCameraBlockedReason();
+  if (cameraBlocked) {
+    setRegisterStatus("error", "Camara bloqueada", cameraBlocked);
+    showToast(cameraBlocked, 9000, "error");
+    renderCameraSecurityBanners();
+    if (registerStartScanBtn) registerStartScanBtn.disabled = false;
+    state.registerScanStarting = false;
+    return;
+  }
+
   const formEl = faceRegisterForm;
   if (!formEl) {
     showToast("Formulario de registro no encontrado.", 5000, "error");
@@ -3548,6 +3559,16 @@ async function runLivenessChallenge() {
 
 async function startCamera() {
   if (state.camera.stream) return;
+
+  const blockedReason = getCameraBlockedReason();
+  if (blockedReason) {
+    setCameraStatus(blockedReason);
+    setScanResult("bad", "Camara bloqueada por el navegador", blockedReason);
+    showToast(blockedReason, 9000, "error");
+    renderCameraSecurityBanners();
+    return;
+  }
+
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
@@ -3582,9 +3603,61 @@ async function startCamera() {
       startAutoScan();
     }
   } catch (error) {
-    setCameraStatus("No se pudo abrir la camara. Revisa permisos.");
-    showToast("Error al iniciar camara");
+    const message = describeCameraError(error);
+    setCameraStatus(message);
+    setScanResult("bad", "No se pudo abrir la camara", message);
+    showToast(message, 9000, "error");
+    renderCameraSecurityBanners();
   }
+}
+
+function isCameraSecureContext() {
+  if (window.isSecureContext) return true;
+  const host = window.location.hostname;
+  return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+}
+
+function getCameraBlockedReason() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return "Tu navegador no permite acceso a la camara web.";
+  }
+  if (!isCameraSecureContext()) {
+    return `La camara exige HTTPS. Estas en ${window.location.origin} (HTTP). Abre el panel con https:// o usa localhost en tu PC.`;
+  }
+  return null;
+}
+
+function describeCameraError(error) {
+  const name = String(error?.name || "");
+  const msg = String(error?.message || error || "").toLowerCase();
+  if (name === "NotAllowedError" || msg.includes("permission") || msg.includes("denied")) {
+    return "Permiso de camara denegado. Pulsa el candado junto a la URL, permite Camara y recarga.";
+  }
+  if (name === "NotFoundError" || msg.includes("not found") || msg.includes("devices")) {
+    return "No se detecto ninguna camara conectada.";
+  }
+  if (name === "NotReadableError" || msg.includes("not readable") || msg.includes("could not start")) {
+    return "La camara esta en uso por otra app (Teams, Zoom, etc.). Cierrala e intenta de nuevo.";
+  }
+  if (name === "SecurityError" || msg.includes("secure") || msg.includes("insecure")) {
+    return getCameraBlockedReason() || "Contexto no seguro: la camara requiere HTTPS.";
+  }
+  const insecure = getCameraBlockedReason();
+  if (insecure) return insecure;
+  return error?.message || "No se pudo abrir la camara.";
+}
+
+function renderCameraSecurityBanners() {
+  const reason = getCameraBlockedReason();
+  document.querySelectorAll("[data-camera-security-banner]").forEach((banner) => {
+    if (!reason) {
+      banner.classList.add("hidden");
+      banner.textContent = "";
+      return;
+    }
+    banner.classList.remove("hidden");
+    banner.textContent = reason;
+  });
 }
 
 async function startScanFaceMesh() {

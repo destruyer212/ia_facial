@@ -405,6 +405,22 @@ h1, h2, h3, p {
   font-weight: 600;
 }
 
+.camera-security-banner {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(220, 38, 38, 0.28);
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+
+.camera-security-banner.hidden {
+  display: none;
+}
+
 /* ─── Buttons ─── */
 .icon-btn,
 .ghost-btn,
