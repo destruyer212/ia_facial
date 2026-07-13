@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     liveness_mar_open_min: float = 0.28
     liveness_smile_enabled: bool = True
     register_duplicate_match_threshold: float = 0.32
+    face_processing_concurrency: int = Field(default=1, ge=1, le=4)
     default_scheduled_exit_time: str = "22:00"
     default_exit_tolerance_minutes: int = 10
     ollama_enabled: bool = False

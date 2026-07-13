@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from app.core.config import settings
 from app.core.tenant import get_active_org_code
+from app.core.workload import run_face_job
 from app.schemas.face import MatchCandidate
 from app.services.anti_spoof_service import AntiSpoofService
 from app.services.embedding_store import get_embedding_store, portrait_api_path
@@ -131,6 +132,37 @@ def build_r2_object_key(person_id: str, suffix: str, pose_type: str = "front") -
 
 
 async def upsert_face_from_image(
+    *,
+    person_id: str,
+    name: str,
+    email: str | None,
+    image_path: Path,
+    content_type: str,
+    pose_type: str = "front",
+    employee_code: str | None = None,
+    area_code: str | None = None,
+    position_code: str | None = None,
+    area_name: str | None = None,
+    position_name: str | None = None,
+) -> tuple[object, str, bool, str | None, str]:
+    return await run_face_job(
+        lambda: _upsert_face_from_image_sync(
+            person_id=person_id,
+            name=name,
+            email=email,
+            image_path=image_path,
+            content_type=content_type,
+            pose_type=pose_type,
+            employee_code=employee_code,
+            area_code=area_code,
+            position_code=position_code,
+            area_name=area_name,
+            position_name=position_name,
+        )
+    )
+
+
+def _upsert_face_from_image_sync(
     *,
     person_id: str,
     name: str,
