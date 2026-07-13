@@ -47,15 +47,27 @@ const state = {
   preRegistrationsFingerprint: "",
   admin: null,
   adminFingerprint: "",
+  activeOrgCode: "",
   backgroundRefreshPaused: false,
   refreshTimer: null,
   lastSyncAt: null,
+  auth: null,
 };
 
 const DEFAULT_API_BASE = "https://104.238.215.26";
 const API_BASE_STORAGE_KEY = "ia_facial_api_base";
+const ORG_CODE_STORAGE_KEY = "ia_facial_active_org_code";
+const AUTH_STORAGE_KEY = "ia_facial_auth_session";
 const apiBaseInput = document.querySelector("#api-base");
 const apiSettingsForm = document.querySelector("#api-settings-form");
+const loginScreen = document.querySelector("#login-screen");
+const loginForm = document.querySelector("#login-form");
+const loginApiBaseInput = document.querySelector("#login-api-base");
+const loginSubmit = document.querySelector("#login-submit");
+const loginError = document.querySelector("#login-error");
+const logoutBtn = document.querySelector("#logout-btn");
+const sessionLabel = document.querySelector("#session-label");
+const sessionOrgLabel = document.querySelector("#session-org-label");
 
 function resolveDefaultApiBase() {
   if (window.location.protocol === "https:") {
@@ -63,7 +75,7 @@ function resolveDefaultApiBase() {
   }
   const host = window.location.hostname;
   if (host === "127.0.0.1" || host === "localhost") {
-    return "http://127.0.0.1:8000";
+    return DEFAULT_API_BASE;
   }
   return DEFAULT_API_BASE;
 }
@@ -98,6 +110,137 @@ function saveStoredApiBase(url) {
   } catch {
     // ignore storage errors
   }
+}
+
+function normalizeOrgCode(value) {
+  const code = String(value || "demo").trim().toLowerCase();
+  return /^[a-z0-9][a-z0-9_-]{0,31}$/.test(code) ? code : "demo";
+}
+
+function loadStoredOrgCode() {
+  try {
+    return localStorage.getItem(ORG_CODE_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredOrgCode(code) {
+  try {
+    localStorage.setItem(ORG_CODE_STORAGE_KEY, normalizeOrgCode(code));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function activeOrgCode() {
+  return normalizeOrgCode(state.activeOrgCode || loadStoredOrgCode() || "demo");
+}
+
+function initActiveOrgCode() {
+  state.activeOrgCode = activeOrgCode();
+  saveStoredOrgCode(state.activeOrgCode);
+}
+
+function loadStoredAuthSession() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredAuthSession(session) {
+  try {
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function clearStoredAuthSession() {
+  try {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function isAuthSessionValid(session) {
+  if (!session?.access_token || !session?.user?.email || !session?.expires_at) return false;
+  const expiresAt = new Date(session.expires_at).getTime();
+  return Number.isFinite(expiresAt) && expiresAt > Date.now() + 15_000;
+}
+
+function restoreAuthSession() {
+  const session = loadStoredAuthSession();
+  if (!isAuthSessionValid(session)) {
+    clearStoredAuthSession();
+    return false;
+  }
+  state.auth = session;
+  state.activeOrgCode = normalizeOrgCode(session.user.org_code || state.activeOrgCode);
+  saveStoredOrgCode(state.activeOrgCode);
+  return true;
+}
+
+function updateSessionUi() {
+  const user = state.auth?.user;
+  if (sessionLabel) {
+    sessionLabel.textContent = user?.full_name || user?.email || "Sin sesion";
+  }
+  if (sessionOrgLabel) {
+    const role = user?.role ? ` · ${user.role}` : "";
+    sessionOrgLabel.textContent = `Empresa ${activeOrgCode()}${role}`;
+  }
+}
+
+function showLoginScreen(message = "") {
+  document.body.classList.add("auth-locked");
+  if (loginScreen) loginScreen.hidden = false;
+  if (loginApiBaseInput) loginApiBaseInput.value = apiBase();
+  if (loginError) loginError.textContent = message;
+  updateSessionUi();
+}
+
+function hideLoginScreen() {
+  document.body.classList.remove("auth-locked");
+  if (loginScreen) loginScreen.hidden = true;
+  updateSessionUi();
+}
+
+function startAuthenticatedApp() {
+  hideLoginScreen();
+  setViewHeader("overview");
+  refreshAll();
+  refreshAdminOverview().catch(() => {});
+  refreshScheduleOverview().catch(() => {});
+  refreshPreRegistrations().catch(() => {});
+  if (faceRegisterForm) {
+    initEmployeeCatalog().catch(() => {});
+    refreshScheduleOverview().catch(() => {});
+    renderPreRegisterOptions();
+  }
+  if (state.refreshTimer) {
+    window.clearInterval(state.refreshTimer);
+  }
+  state.refreshTimer = window.setInterval(() => {
+    refreshAll().catch(() => {});
+  }, 30_000);
+}
+
+function logout(message = "") {
+  stopCamera();
+  stopRegisterScanner();
+  stopSpeech();
+  if (state.refreshTimer) {
+    window.clearInterval(state.refreshTimer);
+    state.refreshTimer = null;
+  }
+  state.auth = null;
+  clearStoredAuthSession();
+  showLoginScreen(message);
 }
 
 function initApiBaseDefault() {
@@ -184,6 +327,8 @@ const userPhotoInput = document.querySelector("#user-photo-input");
 const eventEditDialog = document.querySelector("#event-edit-dialog");
 const eventEditForm = document.querySelector("#event-edit-form");
 const organizationForm = document.querySelector("#organization-form");
+const organizationSelect = document.querySelector("#organization-select");
+const organizationCreateForm = document.querySelector("#organization-create-form");
 const areaForm = document.querySelector("#area-form");
 const positionForm = document.querySelector("#position-form");
 const deviceForm = document.querySelector("#device-form");
@@ -324,6 +469,7 @@ document.querySelectorAll(".nav-item").forEach((button) => {
 document.querySelector("#refresh-btn").addEventListener("click", refreshAll);
 document.querySelector("#reload-incidents").addEventListener("click", refreshIncidents);
 document.querySelector("#reload-reports")?.addEventListener("click", refreshReport);
+document.querySelector("#export-reports-excel")?.addEventListener("click", exportReportToExcel);
 document.querySelector("#report-filters")?.addEventListener("submit", handleReportFilterSubmit);
 document.querySelector("#report-table-wrap")?.addEventListener("click", handleReportTableAction);
 eventEditForm?.addEventListener("submit", submitEventEdit);
@@ -372,6 +518,8 @@ userEditForm?.addEventListener("submit", submitUserEdit);
 document.querySelector("#user-edit-cancel")?.addEventListener("click", closeUserEditDialog);
 showInactiveUsersInput?.addEventListener("change", renderRegisteredUsers);
 userPhotoInput?.addEventListener("change", handleQuickPhotoSelected);
+organizationSelect?.addEventListener("change", handleOrganizationSwitch);
+organizationCreateForm?.addEventListener("submit", submitCreateOrganizationForm);
 organizationForm?.addEventListener("submit", submitOrganizationForm);
 organizationForm?.addEventListener("input", handleOrganizationThemePreview);
 organizationForm?.addEventListener("change", handleOrganizationThemePreview);
@@ -380,6 +528,8 @@ positionForm?.addEventListener("submit", submitPositionForm);
 deviceForm?.addEventListener("submit", submitDeviceForm);
 settingsForm?.addEventListener("submit", submitSettingsForm);
 apiSettingsForm?.addEventListener("submit", submitApiSettingsForm);
+loginForm?.addEventListener("submit", submitLoginForm);
+logoutBtn?.addEventListener("click", () => logout());
 document.querySelector("#reload-admin")?.addEventListener("click", () => {
   refreshAdminOverview(true).catch(() => showToast("No se pudo recargar administracion", 5000, "error"));
 });
@@ -399,25 +549,22 @@ document.querySelector("#reload-schedules")?.addEventListener("click", () => {
 });
 
 initApiBaseDefault();
+initActiveOrgCode();
 const persistedBrandTheme = loadPersistedBrandTheme();
 if (persistedBrandTheme) {
   applyBrandTheme(persistedBrandTheme);
 }
 renderCameraSecurityBanners();
-refreshAll();
-refreshAdminOverview().catch(() => {});
-refreshScheduleOverview().catch(() => {});
-refreshPreRegistrations().catch(() => {});
 setViewHeader("overview");
-state.refreshTimer = window.setInterval(() => {
-  refreshAll().catch(() => {});
-}, 30_000);
 if (faceRegisterForm) {
   updateRegisterFilesSummary(faceRegisterForm);
   setRegisterStatus("idle", "Listo para escanear", "Selecciona area y cargo, completa el nombre y pulsa Iniciar escaneo facial.");
-  initEmployeeCatalog().catch(() => {});
-  refreshScheduleOverview().catch(() => {});
   renderPreRegisterOptions();
+}
+if (restoreAuthSession()) {
+  startAuthenticatedApp();
+} else {
+  showLoginScreen();
 }
 
 function pauseBackgroundRefresh(paused) {
@@ -427,6 +574,68 @@ function pauseBackgroundRefresh(paused) {
 function apiBase() {
   const raw = apiBaseInput?.value?.trim() || resolveDefaultApiBase();
   return normalizeApiBaseUrl(raw);
+}
+
+function tenantHeaders(headers = {}) {
+  return { "X-Org-Code": activeOrgCode(), ...headers };
+}
+
+function authHeaders(headers = {}) {
+  const merged = tenantHeaders(headers);
+  if (state.auth?.access_token) {
+    merged.Authorization = `Bearer ${state.auth.access_token}`;
+  }
+  return merged;
+}
+
+async function submitLoginForm(event) {
+  event.preventDefault();
+  if (!loginForm) return;
+  const formData = new FormData(loginForm);
+  const nextApiBase = normalizeApiBaseUrl(formData.get("api_base") || apiBase());
+  if (apiBaseInput) apiBaseInput.value = nextApiBase;
+  if (loginApiBaseInput) loginApiBaseInput.value = nextApiBase;
+  saveStoredApiBase(nextApiBase);
+  const payload = {
+    email: String(formData.get("email") || "").trim(),
+    password: String(formData.get("password") || ""),
+    org_code: normalizeOrgCode(formData.get("org_code") || state.activeOrgCode || "demo"),
+  };
+  if (loginError) loginError.textContent = "";
+  if (loginSubmit) {
+    loginSubmit.disabled = true;
+    loginSubmit.classList.add("loading");
+  }
+  try {
+    const response = await fetchWithTimeout(`${apiBase()}/api/v1/auth/login`, {
+      method: "POST",
+      headers: tenantHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    }, 20_000);
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    const session = await response.json();
+    if (!isAuthSessionValid(session)) {
+      throw new Error("La sesion recibida no es valida.");
+    }
+    state.auth = session;
+    state.activeOrgCode = normalizeOrgCode(session.user.org_code || payload.org_code);
+    saveStoredOrgCode(state.activeOrgCode);
+    saveStoredAuthSession(session);
+    setApiStatus(true);
+    startAuthenticatedApp();
+    showToast("Sesion iniciada.", 2800, "success");
+  } catch (error) {
+    const message = parseApiError(error);
+    if (loginError) loginError.textContent = message;
+    setApiStatus(false);
+  } finally {
+    if (loginSubmit) {
+      loginSubmit.disabled = false;
+      loginSubmit.classList.remove("loading");
+    }
+  }
 }
 
 async function refreshAll() {
@@ -469,8 +678,15 @@ async function refreshAttendancePolicy() {
 
 async function refreshAdminOverview(force = false) {
   const data = await requestJson("/api/v1/admin/overview");
+  const activeCode = normalizeOrgCode(data.organization?.code || activeOrgCode());
+  if (activeCode !== state.activeOrgCode) {
+    state.activeOrgCode = activeCode;
+    saveStoredOrgCode(activeCode);
+    updateSessionUi();
+  }
   const fingerprint = JSON.stringify({
     organization: data.organization,
+    organizations: data.organizations || [],
     areas: data.areas,
     positions: data.positions,
     devices: data.devices,
@@ -507,6 +723,7 @@ function renderAdminViews() {
 
 function renderOrganizationForm() {
   if (!organizationForm || !state.admin?.organization) return;
+  renderOrganizationSelector();
   const org = state.admin.organization;
   formField(organizationForm, "code").value = org.code || "";
   formField(organizationForm, "name").value = org.name || "";
@@ -579,6 +796,84 @@ function renderOrganizationForm() {
   renderAdminWarnings();
 }
 
+function renderOrganizationSelector() {
+  if (!organizationSelect || !state.admin?.organization) return;
+  const organizations = state.admin.organizations?.length
+    ? state.admin.organizations
+    : [state.admin.organization];
+  const options = organizations
+    .map((org) => {
+      const code = normalizeOrgCode(org.code);
+      const selected = code === activeOrgCode() ? " selected" : "";
+      return `<option value="${escapeHtml(code)}"${selected}>${escapeHtml(org.name || code)} (${escapeHtml(code)})</option>`;
+    })
+    .join("");
+  organizationSelect.innerHTML = options;
+  organizationSelect.value = activeOrgCode();
+}
+
+function resetTenantScopedState() {
+  state.events = [];
+  state.incidents = [];
+  state.faces = [];
+  state.facesFingerprint = "";
+  state.reportEvents = [];
+  state.reportSummary = {
+    total: 0,
+    check_ins: 0,
+    check_outs: 0,
+    duplicates: 0,
+    rejected: 0,
+    late: 0,
+    early_exits: 0,
+  };
+  state.employeeCatalog = null;
+  state.schedule = null;
+  state.scheduleFingerprint = "";
+  state.preRegistrations = [];
+  state.preRegistrationsFingerprint = "";
+  state.admin = null;
+  state.adminFingerprint = "";
+  state.lastSyncAt = null;
+}
+
+async function switchOrganization(orgCode) {
+  const nextCode = normalizeOrgCode(orgCode);
+  if (nextCode === activeOrgCode()) return;
+  const previousCode = activeOrgCode();
+  state.activeOrgCode = nextCode;
+  saveStoredOrgCode(nextCode);
+  updateSessionUi();
+  resetTenantScopedState();
+  const persistedTheme = loadPersistedBrandTheme();
+  if (persistedTheme) {
+    applyBrandTheme(persistedTheme);
+  }
+  try {
+    await refreshAdminOverview(true);
+    await Promise.allSettled([
+      refreshEvents(),
+      refreshIncidents(),
+      refreshFaces(),
+      refreshScheduleOverview(true),
+      refreshPreRegistrations(true),
+    ]);
+    renderDashboard();
+    showToast(`Empresa activa: ${nextCode}`, 3000, "success");
+  } catch (error) {
+    state.activeOrgCode = previousCode;
+    saveStoredOrgCode(previousCode);
+    updateSessionUi();
+    throw error;
+  }
+}
+
+function handleOrganizationSwitch(event) {
+  switchOrganization(event.target.value).catch((error) => {
+    showToast(parseApiError(error), 6000, "error");
+  });
+}
+
 function effectiveSiteAddress(site, org) {
   const ownAddress = String(site?.address || "").trim();
   if (ownAddress) return ownAddress;
@@ -628,11 +923,15 @@ function applyBrandTheme(org) {
 
 const BRAND_THEME_STORAGE_KEY = "ia_facial_brand_theme";
 
+function brandThemeStorageKey() {
+  return `${BRAND_THEME_STORAGE_KEY}:${activeOrgCode()}`;
+}
+
 function persistBrandTheme(org) {
   if (!org) return;
   try {
     localStorage.setItem(
-      BRAND_THEME_STORAGE_KEY,
+      brandThemeStorageKey(),
       JSON.stringify({
         brand_primary_color: org.brand_primary_color,
         brand_accent_color: org.brand_accent_color,
@@ -646,7 +945,7 @@ function persistBrandTheme(org) {
 
 function loadPersistedBrandTheme() {
   try {
-    const raw = localStorage.getItem(BRAND_THEME_STORAGE_KEY);
+    const raw = localStorage.getItem(brandThemeStorageKey()) || localStorage.getItem(BRAND_THEME_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
@@ -896,6 +1195,46 @@ function handleOrganizationThemePreview(event) {
     brand_accent_color: formField(organizationForm, "brand_accent_color")?.value,
     brand_sidebar_color: formField(organizationForm, "brand_sidebar_color")?.value,
   });
+}
+
+async function submitCreateOrganizationForm(event) {
+  event.preventDefault();
+  const form = new FormData(organizationCreateForm);
+  const rawCode = String(form.get("code") || "").trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(rawCode)) {
+    showToast("Codigo de empresa invalido. Usa letras, numeros, guion o guion bajo.", 5000, "error");
+    return;
+  }
+  const code = normalizeOrgCode(rawCode);
+  const name = String(form.get("name") || "").trim();
+  if (!name) {
+    showToast("Ingresa el nombre de la nueva empresa.", 4000, "error");
+    return;
+  }
+  try {
+    const data = await requestJson("/api/v1/admin/organizations", {
+      method: "POST",
+      body: JSON.stringify({
+        code,
+        name,
+        timezone: state.admin?.organization?.timezone || "America/Lima",
+        brand_primary_color: "#0d9488",
+        brand_accent_color: "#2563eb",
+        brand_sidebar_color: "#101827",
+        sites: [{ code: "HQ", name: "Oficina Principal", address: "", is_active: true }],
+      }),
+    });
+    organizationCreateForm.reset();
+    state.activeOrgCode = normalizeOrgCode(data.organization?.code || code);
+    saveStoredOrgCode(state.activeOrgCode);
+    resetTenantScopedState();
+    await refreshAdminOverview(true);
+    await Promise.allSettled([refreshEvents(), refreshFaces(), refreshScheduleOverview(true)]);
+    renderDashboard();
+    showToast(data.message || "Empresa creada", 4000, "success");
+  } catch (error) {
+    showToast(parseApiError(error), 6000, "error");
+  }
 }
 
 async function submitOrganizationForm(event) {
@@ -1776,6 +2115,112 @@ function renderReport() {
   `;
 }
 
+function exportReportToExcel() {
+  if (!state.reportEvents.length) {
+    showToast("No hay marcas para exportar.", 4000, "error");
+    return;
+  }
+  const org = state.admin?.organization || {};
+  const generatedAt = new Date();
+  const rows = state.reportEvents.map((event) => ({
+    Fecha: formatDate(event.captured_at),
+    Empleado: event.employee_name || "",
+    Codigo: event.person_id,
+    Tipo: event.event_type === "check_out" ? "Salida" : "Entrada",
+    Turno: event.shift_code ? `${event.shift_code} ${formatShiftSchedule(event)}` : "Sin turno",
+    Dispositivo: event.device_id,
+    Estado: getEventStatusText(event),
+    Confianza: event.confidence ?? "",
+    Origen: event.source || "",
+    Evento: event.event_id || "",
+  }));
+  const filters = reportFilterSummary();
+  const html = `
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <style>
+          table { border-collapse: collapse; font-family: Arial, sans-serif; font-size: 12px; }
+          th { background: #0d9488; color: #fff; font-weight: bold; }
+          th, td { border: 1px solid #d1d5db; padding: 6px 8px; mso-number-format:"\\@"; }
+          .meta td { border: none; padding: 3px 6px; }
+        </style>
+      </head>
+      <body>
+        <table class="meta">
+          <tr><td>Empresa</td><td>${excelCell(org.name || activeOrgCode())}</td></tr>
+          <tr><td>Codigo</td><td>${excelCell(org.code || activeOrgCode())}</td></tr>
+          <tr><td>Generado</td><td>${excelCell(formatDate(generatedAt.toISOString()))}</td></tr>
+          <tr><td>Filtros</td><td>${excelCell(filters)}</td></tr>
+        </table>
+        <br />
+        <table>
+          <thead>
+            <tr>${Object.keys(rows[0]).map((key) => `<th>${excelCell(key)}</th>`).join("")}</tr>
+          </thead>
+          <tbody>
+            ${rows
+              .map((row) => `<tr>${Object.values(row).map((value) => `<td>${excelCell(value)}</td>`).join("")}</tr>`)
+              .join("")}
+          </tbody>
+        </table>
+      </body>
+    </html>
+  `;
+  const filename = `entradas-salidas-${activeOrgCode()}-${isoDateForFile(new Date())}.xls`;
+  downloadBlob(html, filename, "application/vnd.ms-excel;charset=utf-8");
+  showToast("Excel generado.", 3000, "success");
+}
+
+function reportFilterSummary() {
+  const form = document.querySelector("#report-filters");
+  if (!form) return "Sin filtros";
+  const filters = new FormData(form);
+  const parts = [];
+  const personId = String(filters.get("person_id") || "").trim();
+  const eventType = String(filters.get("event_type") || "").trim();
+  const dateFrom = String(filters.get("date_from") || "").trim();
+  const dateTo = String(filters.get("date_to") || "").trim();
+  if (personId) parts.push(`Empleado: ${personId}`);
+  if (eventType) parts.push(`Tipo: ${eventType === "check_out" ? "Salida" : "Entrada"}`);
+  if (dateFrom) parts.push(`Desde: ${dateFrom}`);
+  if (dateTo) parts.push(`Hasta: ${dateTo}`);
+  return parts.length ? parts.join(" | ") : "Sin filtros";
+}
+
+function getEventStatusText(event) {
+  if (event.duplicate) return "Duplicado";
+  if (!event.accepted) return "Rechazado";
+  if (event.work_status === "late") return "Tardanza";
+  if (event.work_status === "early_exit") return "Salida anticipada";
+  if (event.work_status === "on_time") return "Correcto";
+  return "Aceptado";
+}
+
+function excelCell(value) {
+  let text = String(value ?? "");
+  if (/^[=+\-@]/.test(text)) {
+    text = `'${text}`;
+  }
+  return escapeHtml(text);
+}
+
+function isoDateForFile(value) {
+  return value.toISOString().slice(0, 10);
+}
+
+function downloadBlob(content, filename, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function getEventStatusLabel(event) {
   if (event.duplicate) return '<span class="badge warn">Duplicado</span>';
   if (!event.accepted) return '<span class="badge bad">Rechazado</span>';
@@ -2234,12 +2679,29 @@ function hasFacePhoto(face) {
 function resolveFaceImageUrl(face) {
   if (!face?.image_url) return null;
   const version = state.facePhotoVersions[face.person_id] || face.created_at || "";
-  const cacheBuster = version ? `?v=${encodeURIComponent(version)}` : "";
+  const cacheBuster = (url) => version ? `${url.includes("?") ? "&" : "?"}v=${encodeURIComponent(version)}` : "";
+  const withAccessToken = (url) => {
+    const token = state.auth?.access_token;
+    if (!token) return url;
+    try {
+      const parsed = new URL(url, window.location.href);
+      const api = new URL(apiBase());
+      if (parsed.origin === api.origin && parsed.pathname.includes("/api/v1/faces/portrait")) {
+        parsed.searchParams.set("access_token", token);
+        return parsed.toString();
+      }
+    } catch {
+      // keep the original URL if parsing fails
+    }
+    return url;
+  };
   if (/^https?:\/\//i.test(face.image_url)) {
-    return `${face.image_url}${cacheBuster}`;
+    const url = withAccessToken(face.image_url);
+    return `${url}${cacheBuster(url)}`;
   }
   const normalized = face.image_url.startsWith("/") ? face.image_url : `/${face.image_url}`;
-  return `${apiBase()}${normalized}${cacheBuster}`;
+  const url = withAccessToken(`${apiBase()}${normalized}`);
+  return `${url}${cacheBuster(url)}`;
 }
 
 function getInitials(value) {
@@ -2665,6 +3127,8 @@ async function startRegisterFaceScan() {
     hintEl: registerScanHint,
     progressEl: registerScanProgress,
     apiBase: apiBase(),
+    orgCode: activeOrgCode(),
+    authToken: state.auth?.access_token || "",
     onSpeak: (message) => speak(message),
     onStatus: (mode, title, detail) => setRegisterStatus(mode, title, detail),
     onStepCaptured: () => {
@@ -4003,11 +4467,13 @@ function stopAutoScan() {
 async function requestJson(path, options = {}) {
   const { timeoutMs = 30_000, ...fetchOptions } = options;
   const response = await fetchWithTimeout(`${apiBase()}${path}`, {
-    headers: { "Content-Type": "application/json", ...(fetchOptions.headers || {}) },
     ...fetchOptions,
+    headers: authHeaders({ "Content-Type": "application/json", ...(fetchOptions.headers || {}) }),
   }, timeoutMs);
   if (!response.ok) {
-    throw new Error(await response.text());
+    const message = await response.text();
+    handleAuthFailure(response.status, message);
+    throw new Error(message);
   }
   return response.json();
 }
@@ -4018,6 +4484,7 @@ async function requestForm(path, form, options = {}) {
   try {
     response = await fetchWithTimeout(`${apiBase()}${path}`, {
       method: "POST",
+      headers: authHeaders(),
       body: form,
     }, timeoutMs);
   } catch (error) {
@@ -4026,10 +4493,16 @@ async function requestForm(path, form, options = {}) {
   }
   if (!response.ok) {
     const message = await response.text();
+    handleAuthFailure(response.status, message);
     if (!silent) showToast(parseApiError(new Error(message)), 6000, "error");
     throw new Error(message);
   }
   return response.json();
+}
+
+function handleAuthFailure(status, message) {
+  if (status !== 401) return;
+  logout(parseApiError(new Error(message)) || "Tu sesion expiro. Inicia sesion otra vez.");
 }
 
 async function fetchWithTimeout(url, options, timeoutMs) {

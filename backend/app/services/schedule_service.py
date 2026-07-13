@@ -16,12 +16,14 @@ from app.schemas.schedule import (
     WorkShift,
     WorkShiftUpdate,
 )
+from app.services.supabase_db import get_conn, resolve_org_id
 
 
 class ScheduleService:
     def __init__(self, path: Path | None = None) -> None:
         data_dir = settings.resolved_data_dir
         data_dir.mkdir(parents=True, exist_ok=True)
+        self.force_local = path is not None
         self.path = path or data_dir / "work_schedules.json"
 
     def overview(self) -> ScheduleOverviewResponse:
@@ -41,6 +43,8 @@ class ScheduleService:
         )
 
     def list_shifts(self, include_inactive: bool = True) -> list[WorkShift]:
+        if self._uses_supabase():
+            return self._list_shifts_db(include_inactive=include_inactive)
         shifts = [WorkShift(**item) for item in self._load_state()["shifts"]]
         if not include_inactive:
             shifts = [shift for shift in shifts if shift.is_active]
@@ -52,6 +56,8 @@ class ScheduleService:
 
     def update_shift(self, shift_code: str, payload: WorkShiftUpdate) -> WorkShift:
         shift_code = shift_code.strip().upper()
+        if self._uses_supabase():
+            return self._update_shift_db(shift_code, payload)
         state = self._load_state()
         shifts = [WorkShift(**item) for item in state["shifts"]]
         updates = payload.model_dump(exclude_unset=True)
@@ -66,6 +72,8 @@ class ScheduleService:
         raise LookupError(f"No existe turno '{shift_code}'.")
 
     def list_assignments(self) -> list[ShiftAssignment]:
+        if self._uses_supabase():
+            return self._list_assignments_db()
         return [
             ShiftAssignment(**item)
             for item in sorted(self._load_state()["assignments"], key=lambda row: row["person_id"])
@@ -79,6 +87,8 @@ class ScheduleService:
         shift = self.get_shift(shift_code)
         if shift is None or not shift.is_active:
             raise ValueError(f"Turno '{shift_code}' no existe o esta inactivo.")
+        if self._uses_supabase():
+            return self._assign_shift_db(person_id, shift_code)
         state = self._load_state()
         assignments = [
             item for item in state["assignments"] if item["person_id"] != person_id
@@ -95,6 +105,9 @@ class ScheduleService:
 
     def remove_assignment(self, person_id: str) -> None:
         person_id = person_id.strip()
+        if self._uses_supabase():
+            self._remove_assignment_db(person_id)
+            return
         state = self._load_state()
         state["assignments"] = [
             item for item in state["assignments"] if item["person_id"] != person_id
@@ -247,6 +260,133 @@ class ScheduleService:
     def _save_state(self, state: dict) -> None:
         self.path.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
+    def _list_shifts_db(self, include_inactive: bool = True) -> list[WorkShift]:
+        query = """
+            select shift_code, name, start_time, end_time, work_hours, tolerance_minutes, is_active
+            from public.work_shifts
+            where org_id = %s
+        """
+        with get_conn() as conn:
+            org_id = resolve_org_id(conn)
+            params: list[object] = [org_id]
+            if not include_inactive:
+                query += " and is_active = true"
+            query += " order by start_time, shift_code"
+            with conn.cursor() as cur:
+                cur.execute(query, tuple(params))
+                rows = cur.fetchall()
+        return [
+            WorkShift(
+                code=row[0],
+                name=row[1],
+                start_time=row[2],
+                end_time=row[3],
+                work_hours=row[4],
+                tolerance_minutes=row[5],
+                is_active=bool(row[6]),
+            )
+            for row in rows
+        ]
+
+    def _update_shift_db(self, shift_code: str, payload: WorkShiftUpdate) -> WorkShift:
+        updates = payload.model_dump(exclude_unset=True)
+        if not updates:
+            shift = self.get_shift(shift_code)
+            if shift is None:
+                raise LookupError(f"No existe turno '{shift_code}'.")
+            return shift
+        column_map = {"code": "shift_code"}
+        fields: list[str] = []
+        values: list[object] = []
+        for key, value in updates.items():
+            fields.append(f"{column_map.get(key, key)} = %s")
+            values.append(value)
+        fields.append("updated_at = now()")
+        with get_conn() as conn:
+            org_id = resolve_org_id(conn)
+            values.extend([org_id, shift_code])
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    update public.work_shifts
+                    set {", ".join(fields)}
+                    where org_id = %s and shift_code = %s
+                    """,
+                    values,
+                )
+                if cur.rowcount == 0:
+                    raise LookupError(f"No existe turno '{shift_code}'.")
+        shift = self.get_shift(shift_code)
+        if shift is None:
+            raise LookupError(f"No existe turno '{shift_code}'.")
+        return shift
+
+    def _list_assignments_db(self) -> list[ShiftAssignment]:
+        with get_conn() as conn:
+            org_id = resolve_org_id(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select person_id, shift_code, assigned_at
+                    from public.person_shift_assignments
+                    where org_id = %s
+                    order by person_id
+                    """,
+                    (org_id,),
+                )
+                rows = cur.fetchall()
+        return [
+            ShiftAssignment(person_id=row[0], shift_code=row[1], assigned_at=row[2])
+            for row in rows
+        ]
+
+    def _assign_shift_db(self, person_id: str, shift_code: str) -> ShiftAssignment:
+        assigned_at = datetime.now(UTC)
+        with get_conn() as conn:
+            org_id = resolve_org_id(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    update public.persons
+                    set shift_id = %s, updated_at = now()
+                    where org_id = %s and person_id = %s
+                    """,
+                    (shift_code, org_id, person_id),
+                )
+                if cur.rowcount == 0:
+                    raise ValueError(f"No existe empleado '{person_id}'.")
+                cur.execute(
+                    """
+                    insert into public.person_shift_assignments (org_id, person_id, shift_code, assigned_at)
+                    values (%s, %s, %s, %s)
+                    on conflict (org_id, person_id) do update set
+                      shift_code = excluded.shift_code,
+                      assigned_at = excluded.assigned_at
+                    """,
+                    (org_id, person_id, shift_code, assigned_at),
+                )
+        return ShiftAssignment(person_id=person_id, shift_code=shift_code, assigned_at=assigned_at)
+
+    def _remove_assignment_db(self, person_id: str) -> None:
+        with get_conn() as conn:
+            org_id = resolve_org_id(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    delete from public.person_shift_assignments
+                    where org_id = %s and person_id = %s
+                    """,
+                    (org_id, person_id),
+                )
+                cur.execute(
+                    """
+                    update public.persons
+                    set shift_id = null, updated_at = now()
+                    where org_id = %s and person_id = %s
+                    """,
+                    (org_id, person_id),
+                )
+
     @staticmethod
     def _default_state() -> dict:
         return {
@@ -272,6 +412,9 @@ class ScheduleService:
             ],
             "assignments": [],
         }
+
+    def _uses_supabase(self) -> bool:
+        return not self.force_local and settings.storage_backend.lower() == "supabase"
 
 
 def schedule_label(shift: WorkShift | None) -> str | None:

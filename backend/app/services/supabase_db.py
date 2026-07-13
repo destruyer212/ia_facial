@@ -7,6 +7,7 @@ from uuid import UUID
 import psycopg
 
 from app.core.config import settings
+from app.core.tenant import get_active_org_code, normalize_org_code
 
 
 def normalize_database_url(url: str) -> str:
@@ -64,7 +65,8 @@ def get_conn():
         conn.close()
 
 
-def resolve_org_id(conn: psycopg.Connection) -> UUID:
+def resolve_org_id(conn: psycopg.Connection, org_code: str | None = None) -> UUID:
+    code = normalize_org_code(org_code or get_active_org_code())
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -73,13 +75,13 @@ def resolve_org_id(conn: psycopg.Connection) -> UUID:
             where code = %s
             limit 1
             """,
-            (settings.default_org_code,),
+            (code,),
         )
         row = cur.fetchone()
         if not row:
             raise RuntimeError(
-                f"No existe organization con code='{settings.default_org_code}'. "
-                "Ejecuta seed_v0.sql o cambia DEFAULT_ORG_CODE."
+                f"No existe organization con code='{code}'. "
+                "Crea la empresa desde Datos de empresa o cambia DEFAULT_ORG_CODE."
             )
         return row[0]
 
@@ -105,7 +107,7 @@ def ensure_person(
               dni, registration_status, face_registered_at
             )
             values (%s, %s, %s, %s, %s, %s, %s, %s, %s, now())
-            on conflict (person_id) do update set
+            on conflict (org_id, person_id) do update set
               full_name = excluded.full_name,
               email = coalesce(excluded.email, public.persons.email),
               employee_code = coalesce(excluded.employee_code, public.persons.employee_code),
@@ -223,7 +225,7 @@ def ensure_device(
             """
             insert into public.devices (device_id, org_id, label, kind)
             values (%s, %s, %s, 'edge')
-            on conflict (device_id) do nothing
+            on conflict (org_id, device_id) do nothing
             """,
             (device_id, org_id, device_id),
         )

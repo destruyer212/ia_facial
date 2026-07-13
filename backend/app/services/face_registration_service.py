@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.core.config import settings
+from app.core.tenant import get_active_org_code
 from app.schemas.face import MatchCandidate
 from app.services.anti_spoof_service import AntiSpoofService
 from app.services.embedding_store import get_embedding_store, portrait_api_path
@@ -44,12 +45,14 @@ class FaceAlreadyRegisteredError(ValueError):
 
 
 def get_register_duplicate_threshold() -> float:
+    strict_threshold = settings.register_duplicate_match_threshold
     try:
         from app.services.admin_service import get_admin_service
 
-        return get_admin_service().get_system_settings().face_scan_match_threshold
+        scan_threshold = get_admin_service().get_system_settings().face_scan_match_threshold
     except Exception:
-        return settings.face_scan_match_threshold
+        scan_threshold = settings.face_scan_match_threshold
+    return min(strict_threshold, scan_threshold)
 
 
 def get_register_anti_spoof_threshold() -> float:
@@ -112,15 +115,16 @@ def assert_face_not_already_registered(
 
 def build_r2_object_key(person_id: str, suffix: str, pose_type: str = "front") -> str:
     now = datetime.now(UTC)
+    org_code = get_active_org_code()
     sanitized = person_id.strip().replace("/", "_")
     if pose_type != "front":
         return (
-            f"person/{sanitized}/poses/{pose_type}/"
+            f"org/{org_code}/person/{sanitized}/poses/{pose_type}/"
             f"{now:%Y/%m/%d}/"
             f"{uuid4().hex}-{suffix}"
         )
     return (
-        f"person/{sanitized}/raw/"
+        f"org/{org_code}/person/{sanitized}/raw/"
         f"{now:%Y/%m/%d}/"
         f"{uuid4().hex}-{suffix}"
     )
@@ -223,6 +227,7 @@ def _save_panel_face_asset(
     public_url: str,
     r2_key: str = "",
 ) -> None:
+    safe_key = r2_key or f"panel/{get_active_org_code()}/person/{person_id.strip().replace('/', '_')}/{uuid4().hex}.jpg"
     with get_conn() as conn:
         org_id = resolve_org_id(conn)
         with conn.cursor() as cur:
@@ -237,7 +242,7 @@ def _save_panel_face_asset(
             conn,
             org_id=org_id,
             person_id=person_id,
-            r2_key=r2_key,
+            r2_key=safe_key,
             public_url=public_url,
             content_type=content_type,
             bytes_size=bytes_size,

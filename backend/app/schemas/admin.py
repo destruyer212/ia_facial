@@ -36,6 +36,11 @@ class OrganizationUpdate(BaseModel):
     sites: list[OrganizationSite] | None = None
 
 
+class OrganizationCreate(OrganizationUpdate):
+    code: str
+    name: str
+
+
 class AdminArea(BaseModel):
     code: str
     name: str
@@ -132,6 +137,7 @@ class SystemSettingsUpdate(BaseModel):
 
 class AdminOverviewResponse(BaseModel):
     organization: OrganizationProfile
+    organizations: list[OrganizationProfile] = Field(default_factory=list)
     areas: list[AdminArea]
     positions: list[AdminPosition]
     devices: list[AdminDevice]
@@ -146,6 +152,10 @@ class AdminMessageResponse(BaseModel):
 
 class OrganizationResponse(AdminMessageResponse):
     organization: OrganizationProfile
+
+
+class OrganizationsResponse(BaseModel):
+    organizations: list[OrganizationProfile]
 
 
 class AreaResponse(AdminMessageResponse):

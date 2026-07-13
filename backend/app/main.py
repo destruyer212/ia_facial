@@ -5,6 +5,7 @@ from psycopg import OperationalError
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.tenant import reset_active_org_code, set_active_org_code
 
 
 def create_app() -> FastAPI:
@@ -21,6 +22,16 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def tenant_context_middleware(request: Request, call_next):
+        token = set_active_org_code(
+            request.headers.get("x-org-code") or request.query_params.get("org_code")
+        )
+        try:
+            return await call_next(request)
+        finally:
+            reset_active_org_code(token)
 
     app.include_router(api_router, prefix=settings.api_v1_prefix)
 
@@ -57,4 +68,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-

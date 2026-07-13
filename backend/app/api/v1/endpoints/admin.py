@@ -10,8 +10,10 @@ from app.schemas.admin import (
     AdminPositionUpdate,
     AreaResponse,
     DeviceResponse,
+    OrganizationCreate,
     OrganizationResponse,
     OrganizationUpdate,
+    OrganizationsResponse,
     PositionResponse,
     SettingsResponse,
     SystemSettingsUpdate,
@@ -25,6 +27,23 @@ admin_service = get_admin_service()
 @router.get("/overview", response_model=AdminOverviewResponse)
 def get_admin_overview() -> AdminOverviewResponse:
     return admin_service.overview()
+
+
+@router.get("/organizations", response_model=OrganizationsResponse)
+def list_organizations() -> OrganizationsResponse:
+    return OrganizationsResponse(organizations=admin_service.list_organizations())
+
+
+@router.post("/organizations", response_model=OrganizationResponse)
+def create_organization(payload: OrganizationCreate) -> OrganizationResponse:
+    try:
+        organization = admin_service.create_organization(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return OrganizationResponse(
+        organization=organization,
+        message=f"Empresa {organization.code} creada.",
+    )
 
 
 @router.patch("/organization", response_model=OrganizationResponse)

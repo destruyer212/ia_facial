@@ -11,9 +11,50 @@
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=2026061604" />
+    <link rel="stylesheet" href="./styles.css?v=2026071301" />
   </head>
   <body>
+    <section id="login-screen" class="login-screen" aria-labelledby="login-title">
+      <div class="login-panel">
+        <div class="login-brand">
+          <span class="brand-mark" aria-hidden="true">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <circle cx="12" cy="10" r="4" />
+              <path d="M5 20c1.5-4 4.5-6 7-6s5.5 2 7 6" />
+            </svg>
+          </span>
+          <div>
+            <strong>IA Facial</strong>
+            <small>Control empresarial</small>
+          </div>
+        </div>
+        <div class="login-copy">
+          <p class="section-kicker">Acceso seguro</p>
+          <h1 id="login-title">Iniciar sesion</h1>
+          <p>Usa tu usuario del panel para operar la empresa asignada.</p>
+        </div>
+        <form id="login-form" class="login-form">
+          <label>
+            Servidor API
+            <input id="login-api-base" name="api_base" autocomplete="url" placeholder="https://104.238.215.26" />
+          </label>
+          <label>
+            Correo
+            <input name="email" type="email" autocomplete="username" required placeholder="admin@iafacial.local" />
+          </label>
+          <label>
+            Contrasena
+            <input name="password" type="password" autocomplete="current-password" required placeholder="Admin123!" />
+          </label>
+          <label>
+            Empresa
+            <input name="org_code" autocomplete="organization" placeholder="demo" />
+          </label>
+          <button id="login-submit" class="primary-btn" type="submit">Entrar al panel</button>
+          <p id="login-error" class="login-error" role="alert"></p>
+        </form>
+      </div>
+    </section>
     <aside class="sidebar">
       <div class="brand">
         <span class="brand-mark" aria-hidden="true">
@@ -107,6 +148,13 @@
           <small>Backend API</small>
         </div>
       </div>
+      <div class="system-card session-card">
+        <span class="status-dot ok"></span>
+        <div>
+          <strong id="session-label">Sin sesion</strong>
+          <small id="session-org-label">Empresa demo</small>
+        </div>
+      </div>
     </aside>
 
     <div id="mobile-menu-backdrop" class="mobile-menu-backdrop" hidden></div>
@@ -120,6 +168,7 @@
           <p id="today-label" class="topbar-date"></p>
         </div>
         <div class="topbar-actions">
+          <button id="logout-btn" class="ghost-btn compact-btn" type="button">Cerrar sesion</button>
           <button id="refresh-btn" class="icon-btn" type="button" title="Actualizar datos">
             <span aria-hidden="true">↻</span>
             Actualizar
@@ -216,6 +265,23 @@
                 <p class="panel-desc">Identidad comercial, RUC, direccion y sedes</p>
               </div>
               <button id="reload-admin" class="ghost-btn" type="button">Recargar</button>
+            </div>
+            <div class="tenant-switcher">
+              <label>
+                Empresa activa
+                <select id="organization-select"></select>
+              </label>
+              <form id="organization-create-form" class="tenant-create-form">
+                <label>
+                  Codigo nuevo
+                  <input name="code" placeholder="acme" maxlength="32" />
+                </label>
+                <label>
+                  Nombre
+                  <input name="name" placeholder="ACME SAC" />
+                </label>
+                <button class="ghost-btn" type="submit">Crear empresa</button>
+              </form>
             </div>
             <form id="organization-form" class="form-grid">
               <label>
@@ -1105,7 +1171,10 @@
               <h2>Reporte de entradas y salidas</h2>
               <p class="panel-desc">Consulta, filtra y corrige marcas de asistencia</p>
             </div>
-            <button id="reload-reports" class="ghost-btn" type="button">↻ Actualizar</button>
+            <div class="panel-actions">
+              <button id="export-reports-excel" class="ghost-btn" type="button">Exportar Excel</button>
+              <button id="reload-reports" class="ghost-btn" type="button">↻ Actualizar</button>
+            </div>
           </div>
 
           <form id="report-filters" class="report-filters">
@@ -1288,10 +1357,10 @@
     </main>
 
     <script>
-      window.__IA_FACIAL_BUILD = "2026061705";
+      window.__IA_FACIAL_BUILD = "2026071301";
       console.info("[IA Facial] build", window.__IA_FACIAL_BUILD);
     </script>
-    <script src="./register-scanner.js?v=2026061705"></script>
-    <script src="./app.js?v=2026061705"></script>
+    <script src="./register-scanner.js?v=2026071301"></script>
+    <script src="./app.js?v=2026071301"></script>
   </body>
 </html>

@@ -3,7 +3,9 @@ import math
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import quote
 
+from app.core.tenant import get_active_org_code
 from app.core.config import settings
 from app.schemas.face import MatchCandidate, StoredFaceEmbedding, StoredFacePublic
 from app.services.supabase_db import (
@@ -19,8 +21,20 @@ def sanitize_person_id(person_id: str) -> str:
     return person_id.strip().replace("/", "_").replace("\\", "_")
 
 
-def portrait_api_path(person_id: str) -> str:
-    return f"/api/v1/faces/portrait/{sanitize_person_id(person_id)}"
+def portrait_api_path(person_id: str, pose_type: str = "front") -> str:
+    safe_person_id = sanitize_person_id(person_id)
+    org_query = quote(get_active_org_code(), safe="")
+    if pose_type == "front":
+        return f"/api/v1/faces/portrait/{safe_person_id}?org_code={org_query}"
+    return f"/api/v1/faces/portrait/{safe_person_id}/{pose_type}?org_code={org_query}"
+
+
+def portrait_filename(person_id: str, pose_type: str = "front", *, legacy: bool = False) -> str:
+    safe_person_id = sanitize_person_id(person_id)
+    suffix = "" if pose_type == "front" else f"_{pose_type}"
+    if legacy:
+        return f"{safe_person_id}{suffix}.jpg"
+    return f"{get_active_org_code()}_{safe_person_id}{suffix}.jpg"
 
 
 class LocalEmbeddingStore:
@@ -90,17 +104,13 @@ class LocalEmbeddingStore:
     def save_portrait(self, person_id: str, source_path: Path, pose_type: str = "front") -> str:
         person_id = person_id.strip()
         pose_type = pose_type.strip() or "front"
-        filename = (
-            f"{sanitize_person_id(person_id)}.jpg"
-            if pose_type == "front"
-            else f"{sanitize_person_id(person_id)}_{pose_type}.jpg"
-        )
+        filename = portrait_filename(person_id, pose_type)
         dest = self.portraits_dir / filename
         shutil.copy(source_path, dest)
         image_url = (
             portrait_api_path(person_id)
             if pose_type == "front"
-            else f"/api/v1/faces/portrait/{sanitize_person_id(person_id)}/{pose_type}"
+            else portrait_api_path(person_id, pose_type=pose_type)
         )
         if pose_type == "front":
             records = self._load()
@@ -113,13 +123,11 @@ class LocalEmbeddingStore:
     def get_portrait_path(self, person_id: str, pose_type: str = "front") -> Path | None:
         person_id = person_id.strip()
         pose_type = pose_type.strip() or "front"
-        filename = (
-            f"{sanitize_person_id(person_id)}.jpg"
-            if pose_type == "front"
-            else f"{sanitize_person_id(person_id)}_{pose_type}.jpg"
-        )
-        path = self.portraits_dir / filename
-        return path if path.exists() else None
+        path = self.portraits_dir / portrait_filename(person_id, pose_type)
+        if path.exists():
+            return path
+        legacy_path = self.portraits_dir / portrait_filename(person_id, pose_type, legacy=True)
+        return legacy_path if legacy_path.exists() else None
 
     def find_best_match(
         self,
@@ -351,11 +359,12 @@ class SupabaseEmbeddingStore:
                 cur.execute(
                     """
                     delete from public.face_embeddings
-                    where person_id = %s
+                    where org_id = %s
+                      and person_id = %s
                       and model = %s
                       and coalesce(metadata->>'pose_type', 'front') = %s
                     """,
-                    (person_id, model, pose_type),
+                    (org_id, person_id, model, pose_type),
                 )
                 cur.execute(
                     """
@@ -524,29 +533,23 @@ class SupabaseEmbeddingStore:
     def save_portrait(self, person_id: str, source_path: Path, pose_type: str = "front") -> str:
         person_id = person_id.strip()
         pose_type = pose_type.strip() or "front"
-        filename = (
-            f"{sanitize_person_id(person_id)}.jpg"
-            if pose_type == "front"
-            else f"{sanitize_person_id(person_id)}_{pose_type}.jpg"
-        )
+        filename = portrait_filename(person_id, pose_type)
         dest = self.portraits_dir / filename
         shutil.copy(source_path, dest)
         return (
             portrait_api_path(person_id)
             if pose_type == "front"
-            else f"/api/v1/faces/portrait/{sanitize_person_id(person_id)}/{pose_type}"
+            else portrait_api_path(person_id, pose_type=pose_type)
         )
 
     def get_portrait_path(self, person_id: str, pose_type: str = "front") -> Path | None:
         person_id = person_id.strip()
         pose_type = pose_type.strip() or "front"
-        filename = (
-            f"{sanitize_person_id(person_id)}.jpg"
-            if pose_type == "front"
-            else f"{sanitize_person_id(person_id)}_{pose_type}.jpg"
-        )
-        path = self.portraits_dir / filename
-        return path if path.exists() else None
+        path = self.portraits_dir / portrait_filename(person_id, pose_type)
+        if path.exists():
+            return path
+        legacy_path = self.portraits_dir / portrait_filename(person_id, pose_type, legacy=True)
+        return legacy_path if legacy_path.exists() else None
 
     def list_public(self) -> list[StoredFacePublic]:
         with get_conn() as conn:
@@ -740,12 +743,14 @@ class SupabaseEmbeddingStore:
 def delete_local_portraits(portraits_dir: Path, person_id: str) -> int:
     safe_id = sanitize_person_id(person_id)
     deleted = 0
-    for path in portraits_dir.glob(f"{safe_id}*.jpg"):
-        try:
-            path.unlink()
-            deleted += 1
-        except OSError:
-            continue
+    patterns = [f"{get_active_org_code()}_{safe_id}*.jpg", f"{safe_id}*.jpg"]
+    for pattern in patterns:
+        for path in portraits_dir.glob(pattern):
+            try:
+                path.unlink()
+                deleted += 1
+            except OSError:
+                continue
     return deleted
 
 
@@ -753,4 +758,3 @@ def get_embedding_store():
     if settings.storage_backend.lower() == "supabase":
         return SupabaseEmbeddingStore()
     return LocalEmbeddingStore()
-

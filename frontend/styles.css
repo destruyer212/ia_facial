@@ -87,6 +87,20 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+body.auth-locked {
+  overflow: hidden;
+}
+
+body.auth-locked .sidebar,
+body.auth-locked .shell,
+body.auth-locked .mobile-menu-backdrop {
+  display: none;
+}
+
+body:not(.auth-locked) .login-screen {
+  display: none;
+}
+
 button,
 input,
 select,
@@ -96,6 +110,97 @@ textarea {
 
 h1, h2, h3, p {
   margin: 0;
+}
+
+/* Login */
+.login-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: grid;
+  place-items: start center;
+  padding: 24px;
+  overflow-y: auto;
+  background:
+    linear-gradient(135deg, rgba(13, 148, 136, 0.12), rgba(37, 99, 235, 0.08)),
+    var(--bg);
+}
+
+.login-panel {
+  width: min(100%, 440px);
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.login-brand strong {
+  display: block;
+  color: var(--ink);
+  font-size: 17px;
+}
+
+.login-brand small,
+.login-copy p {
+  color: var(--ink-secondary);
+}
+
+.login-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.login-copy h1 {
+  color: var(--ink);
+  font-size: 26px;
+  line-height: 1.12;
+  letter-spacing: 0;
+}
+
+.login-form {
+  display: grid;
+  gap: 10px;
+}
+
+.login-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-secondary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.login-form input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 0 14px;
+  color: var(--ink);
+  background: var(--surface);
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.login-form input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.login-error {
+  min-height: 18px;
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 /* ─── Sidebar ─── */
@@ -449,6 +554,12 @@ h1, h2, h3, p {
   color: var(--ink-secondary);
   border: 1px solid var(--line-strong);
   box-shadow: var(--shadow-xs);
+}
+
+.compact-btn {
+  min-height: 40px;
+  padding: 8px 12px;
+  font-size: 13px;
 }
 
 .icon-btn:hover,
@@ -1474,6 +1585,13 @@ h1, h2, h3, p {
   margin-bottom: 20px;
 }
 
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .panel-header h2 {
   font-size: 20px;
   font-weight: 800;
@@ -1484,6 +1602,24 @@ h1, h2, h3, p {
   margin-top: 4px;
   color: var(--ink-muted);
   font-size: 14px;
+}
+
+.tenant-switcher {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(320px, 1.2fr);
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+}
+
+.tenant-create-form {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(160px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
 }
 
 .sync-badge {
@@ -3081,6 +3217,8 @@ input[readonly] {
   .metrics-grid,
   .two-column,
   .form-grid,
+  .tenant-switcher,
+  .tenant-create-form,
   .attendance-hero,
   .attendance-channel-grid,
   .company-kpis,

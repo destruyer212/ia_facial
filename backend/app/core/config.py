@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     liveness_min_pass_score: float = 0.72
     liveness_mar_open_min: float = 0.28
     liveness_smile_enabled: bool = True
+    register_duplicate_match_threshold: float = 0.32
     default_scheduled_exit_time: str = "22:00"
     default_exit_tolerance_minutes: int = 10
     ollama_enabled: bool = False
@@ -44,6 +45,12 @@ class Settings(BaseSettings):
     storage_backend: str = "json"
     default_org_code: str = "demo"
     database_url: str = "postgresql+psycopg://ia_facial:ia_facial@localhost:5432/ia_facial"
+    auth_required: bool = True
+    auth_secret_key: str = "change-me-dev-secret"
+    auth_token_ttl_minutes: int = 480
+    auth_default_admin_email: str = "admin@iafacial.local"
+    auth_default_admin_password: str = "Admin123!"
+    auth_default_admin_name: str = "Administrador"
     r2_account_id: str = ""
     r2_endpoint: str = ""
     r2_access_key_id: str = ""

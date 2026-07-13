@@ -305,6 +305,8 @@
       this.capturing = false;
       this.fallbackMode = false;
       this.apiBase = options.apiBase || "";
+      this.orgCode = options.orgCode || "";
+      this.authToken = options.authToken || "";
     }
 
     get isComplete() {
@@ -479,8 +481,12 @@
       const form = new FormData();
       form.append("file", blob, "detect.jpg");
       try {
+        const headers = {};
+        if (this.orgCode) headers["X-Org-Code"] = this.orgCode;
+        if (this.authToken) headers.Authorization = `Bearer ${this.authToken}`;
         const response = await fetch(`${this.apiBase}/api/v1/faces/detect`, {
           method: "POST",
+          headers,
           body: form,
         });
         if (!response.ok) return null;

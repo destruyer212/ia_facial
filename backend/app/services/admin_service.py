@@ -19,14 +19,17 @@ from app.schemas.admin import (
     AdminPositionCreate,
     AdminPositionUpdate,
     OrganizationProfile,
+    OrganizationCreate,
     OrganizationSite,
     OrganizationUpdate,
     SystemSettings,
     SystemSettingsUpdate,
 )
+from app.core.tenant import get_active_org_code, normalize_org_code
 from app.services.supabase_db import get_conn, resolve_org_id
 
 _CODE_RE = re.compile(r"^[A-Z0-9]{2}$")
+_HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 
 class AdminService:
@@ -50,6 +53,11 @@ class AdminService:
             warnings.append(f"No se pudo leer organizacion en Supabase: {exc}")
             organization = self._local_organization()
         try:
+            organizations = self.list_organizations()
+        except Exception as exc:
+            warnings.append(f"No se pudo leer lista de empresas en Supabase: {exc}")
+            organizations = [organization]
+        try:
             areas = self.list_areas()
             positions = self.list_positions()
         except Exception as exc:
@@ -63,6 +71,7 @@ class AdminService:
             devices = self._local_devices()
         return AdminOverviewResponse(
             organization=organization,
+            organizations=organizations,
             areas=areas,
             positions=positions,
             devices=devices,
@@ -75,6 +84,23 @@ class AdminService:
         if self._uses_supabase():
             return self._get_organization_db()
         return self._local_organization()
+
+    def list_organizations(self) -> list[OrganizationProfile]:
+        if self._uses_supabase():
+            return self._list_organizations_db()
+        return [self._local_organization()]
+
+    def create_organization(self, payload: OrganizationCreate) -> OrganizationProfile:
+        organization = self._organization_from_payload(payload, code=payload.code)
+        if self._uses_supabase():
+            self._upsert_organization_db(organization)
+            self._seed_organization_defaults_db(organization.code)
+            return organization
+
+        current = self._local_organization()
+        if normalize_org_code(organization.code) != normalize_org_code(current.code):
+            raise ValueError("El modo JSON local solo soporta una empresa. Usa STORAGE_BACKEND=supabase.")
+        return self.update_organization(OrganizationUpdate(**organization.model_dump()))
 
     def update_organization(self, payload: OrganizationUpdate) -> OrganizationProfile:
         if self._uses_supabase():
@@ -304,21 +330,24 @@ class AdminService:
 
     def _get_organization_db(self) -> OrganizationProfile:
         local = self._local_organization()
+        code = get_active_org_code()
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    select code, name, timezone
+                    select org_id, code, name, timezone, ruc, logo_url, address,
+                           brand_primary_color, brand_accent_color, brand_sidebar_color
                     from public.organizations
                     where code = %s
                     limit 1
                     """,
-                    (settings.default_org_code,),
+                    (code,),
                 )
                 row = cur.fetchone()
+                sites = self._fetch_sites_db(cur, row[0]) if row else []
         if not row:
             return local
-        return local.model_copy(update={"code": row[0], "name": row[1], "timezone": row[2]})
+        return self._organization_row_to_profile(row, sites)
 
     def _update_organization_db(self, payload: OrganizationUpdate) -> None:
         fields: list[str] = []
@@ -329,20 +358,237 @@ class AdminService:
         if payload.timezone is not None:
             fields.append("timezone = %s")
             values.append(payload.timezone.strip())
-        if not fields:
-            return
-        fields.append("updated_at = now()")
-        values.append(settings.default_org_code)
+        if payload.ruc is not None:
+            fields.append("ruc = %s")
+            values.append(payload.ruc.strip() or None)
+        if payload.logo_url is not None:
+            fields.append("logo_url = %s")
+            values.append(payload.logo_url.strip() or None)
+        if payload.address is not None:
+            fields.append("address = %s")
+            values.append(payload.address.strip() or None)
+        if payload.brand_primary_color is not None:
+            fields.append("brand_primary_color = %s")
+            values.append(self._normalize_hex_color(payload.brand_primary_color, "#0d9488"))
+        if payload.brand_accent_color is not None:
+            fields.append("brand_accent_color = %s")
+            values.append(self._normalize_hex_color(payload.brand_accent_color, "#2563eb"))
+        if payload.brand_sidebar_color is not None:
+            fields.append("brand_sidebar_color = %s")
+            values.append(self._normalize_hex_color(payload.brand_sidebar_color, "#101827"))
+        with get_conn() as conn:
+            org_id = resolve_org_id(conn)
+            with conn.cursor() as cur:
+                if fields:
+                    fields.append("updated_at = now()")
+                    values.append(org_id)
+                    cur.execute(
+                        f"""
+                        update public.organizations
+                        set {", ".join(fields)}
+                        where org_id = %s
+                        """,
+                        values,
+                    )
+                if payload.sites is not None:
+                    self._replace_sites_db(cur, org_id, payload.sites)
+
+    def _list_organizations_db(self) -> list[OrganizationProfile]:
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    f"""
-                    update public.organizations
-                    set {", ".join(fields)}
-                    where code = %s
+                    """
+                    select org_id, code, name, timezone, ruc, logo_url, address,
+                           brand_primary_color, brand_accent_color, brand_sidebar_color
+                    from public.organizations
+                    where is_active = true
+                    order by name, code
                     """,
-                    values,
                 )
+                rows = cur.fetchall()
+                site_rows_by_org = {
+                    row[0]: self._fetch_sites_db(cur, row[0])
+                    for row in rows
+                }
+        return [
+            self._organization_row_to_profile(row, site_rows_by_org.get(row[0], []))
+            for row in rows
+        ]
+
+    def _upsert_organization_db(self, organization: OrganizationProfile) -> None:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    insert into public.organizations (
+                      code, name, timezone, ruc, logo_url, address,
+                      brand_primary_color, brand_accent_color, brand_sidebar_color, is_active
+                    )
+                    values (%s, %s, %s, %s, %s, %s, %s, %s, %s, true)
+                    on conflict (code) do update set
+                      name = excluded.name,
+                      timezone = excluded.timezone,
+                      ruc = excluded.ruc,
+                      logo_url = excluded.logo_url,
+                      address = excluded.address,
+                      brand_primary_color = excluded.brand_primary_color,
+                      brand_accent_color = excluded.brand_accent_color,
+                      brand_sidebar_color = excluded.brand_sidebar_color,
+                      is_active = true,
+                      updated_at = now()
+                    returning org_id
+                    """,
+                    (
+                        organization.code,
+                        organization.name,
+                        organization.timezone,
+                        organization.ruc,
+                        organization.logo_url,
+                        organization.address,
+                        organization.brand_primary_color,
+                        organization.brand_accent_color,
+                        organization.brand_sidebar_color,
+                    ),
+                )
+                org_id = cur.fetchone()[0]
+                self._replace_sites_db(cur, org_id, organization.sites)
+
+    def _seed_organization_defaults_db(self, org_code: str) -> None:
+        seed = json.loads(self.seed_catalog_path.read_text(encoding="utf-8"))
+        with get_conn() as conn:
+            org_id = resolve_org_id(conn, org_code=org_code)
+            with conn.cursor() as cur:
+                for item in seed.get("areas", []):
+                    cur.execute(
+                        """
+                        insert into public.org_areas (org_id, area_code, name, sort_order, is_active)
+                        values (%s, %s, %s, %s, true)
+                        on conflict (org_id, area_code) do nothing
+                        """,
+                        (org_id, item["code"], item["name"], item.get("sort_order", 0)),
+                    )
+                for item in seed.get("positions", []):
+                    cur.execute(
+                        """
+                        insert into public.org_positions (
+                          org_id, area_code, position_code, name, sort_order, is_active
+                        )
+                        values (%s, %s, %s, %s, %s, true)
+                        on conflict (org_id, area_code, position_code) do nothing
+                        """,
+                        (
+                            org_id,
+                            item["area_code"],
+                            item["code"],
+                            item["name"],
+                            item.get("sort_order", 0),
+                        ),
+                    )
+                cur.execute(
+                    """
+                    insert into public.devices (device_id, org_id, label, kind, location, is_active)
+                    values ('dashboard-camera-001', %s, 'Dashboard Camara', 'web', 'Oficina Principal', true)
+                    on conflict (org_id, device_id) do nothing
+                    """,
+                    (org_id,),
+                )
+                cur.execute(
+                    """
+                    insert into public.work_shifts (
+                      org_id, shift_code, name, start_time, end_time, work_hours, tolerance_minutes, is_active
+                    )
+                    values
+                      (%s, 'TM', 'Turno Manana', '08:00'::time, '16:00'::time, 8, 10, true),
+                      (%s, 'TT', 'Turno Tarde', '14:00'::time, '22:00'::time, 8, 10, true)
+                    on conflict (org_id, shift_code) do nothing
+                    """,
+                    (org_id, org_id),
+                )
+
+    @staticmethod
+    def _fetch_sites_db(cur, org_id) -> list[OrganizationSite]:
+        cur.execute(
+            """
+            select site_code, name, address, is_active
+            from public.org_sites
+            where org_id = %s
+            order by site_code
+            """,
+            (org_id,),
+        )
+        return [
+            OrganizationSite(
+                code=row[0],
+                name=row[1],
+                address=row[2],
+                is_active=bool(row[3]),
+            )
+            for row in cur.fetchall()
+        ]
+
+    @staticmethod
+    def _replace_sites_db(cur, org_id, sites: list[OrganizationSite]) -> None:
+        normalized = sites or [
+            OrganizationSite(code="HQ", name="Oficina Principal", address=None, is_active=True)
+        ]
+        cur.execute("delete from public.org_sites where org_id = %s", (org_id,))
+        for site in normalized:
+            code = site.code.strip().upper()
+            name = site.name.strip()
+            if not code or not name:
+                continue
+            cur.execute(
+                """
+                insert into public.org_sites (org_id, site_code, name, address, is_active)
+                values (%s, %s, %s, %s, %s)
+                """,
+                (
+                    org_id,
+                    code,
+                    name,
+                    site.address.strip() if site.address else None,
+                    site.is_active,
+                ),
+            )
+
+    @staticmethod
+    def _organization_row_to_profile(row, sites: list[OrganizationSite]) -> OrganizationProfile:
+        return OrganizationProfile(
+            code=row[1],
+            name=row[2],
+            timezone=row[3] or "America/Lima",
+            ruc=row[4],
+            logo_url=row[5],
+            address=row[6],
+            brand_primary_color=row[7] or "#0d9488",
+            brand_accent_color=row[8] or "#2563eb",
+            brand_sidebar_color=row[9] or "#101827",
+            sites=sites,
+        )
+
+    def _organization_from_payload(
+        self,
+        payload: OrganizationCreate | OrganizationUpdate,
+        *,
+        code: str,
+    ) -> OrganizationProfile:
+        name = (payload.name or "").strip()
+        if not name:
+            raise ValueError("El nombre de empresa es obligatorio.")
+        return OrganizationProfile(
+            code=normalize_org_code(code),
+            name=name,
+            timezone=(payload.timezone or "America/Lima").strip() or "America/Lima",
+            ruc=payload.ruc.strip() if payload.ruc else None,
+            logo_url=payload.logo_url.strip() if payload.logo_url else None,
+            address=payload.address.strip() if payload.address else None,
+            brand_primary_color=self._normalize_hex_color(payload.brand_primary_color, "#0d9488"),
+            brand_accent_color=self._normalize_hex_color(payload.brand_accent_color, "#2563eb"),
+            brand_sidebar_color=self._normalize_hex_color(payload.brand_sidebar_color, "#101827"),
+            sites=payload.sites or [
+                OrganizationSite(code="HQ", name="Oficina Principal", address=None, is_active=True)
+            ],
+        )
 
     def _list_areas_db(self) -> list[AdminArea]:
         with get_conn() as conn:
@@ -543,7 +789,7 @@ class AdminService:
                     insert into public.devices
                       (device_id, org_id, label, kind, location, is_active)
                     values (%s, %s, %s, %s, %s, %s)
-                    on conflict (device_id) do update set
+                    on conflict (org_id, device_id) do update set
                       label = excluded.label,
                       kind = excluded.kind,
                       location = excluded.location,
@@ -744,6 +990,13 @@ class AdminService:
         if not _CODE_RE.match(code):
             raise ValueError("El codigo debe tener exactamente 2 caracteres alfanumericos.")
         return code
+
+    @staticmethod
+    def _normalize_hex_color(value: str | None, fallback: str) -> str:
+        color = (value or fallback).strip()
+        if not _HEX_COLOR_RE.match(color):
+            return fallback
+        return color.lower()
 
 
 def parse_datetime(value: object) -> datetime | None:
