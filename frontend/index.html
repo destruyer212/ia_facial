@@ -243,22 +243,24 @@
                 <input name="timezone" value="America/Lima" required />
               </label>
               <div class="theme-config full-row">
-                <div>
+                <div class="theme-config-head">
                   <strong>Personalizacion visual</strong>
                   <small>Estos colores se aplican al panel de esta empresa.</small>
                 </div>
-                <label>
-                  Primario
-                  <input name="brand_primary_color" type="color" value="#0d9488" />
-                </label>
-                <label>
-                  Acento
-                  <input name="brand_accent_color" type="color" value="#2563eb" />
-                </label>
-                <label>
-                  Menu
-                  <input name="brand_sidebar_color" type="color" value="#101827" />
-                </label>
+                <div class="theme-color-grid">
+                  <label class="theme-color-field">
+                    <span>Primario</span>
+                    <input name="brand_primary_color" type="color" value="#0d9488" />
+                  </label>
+                  <label class="theme-color-field">
+                    <span>Acento</span>
+                    <input name="brand_accent_color" type="color" value="#2563eb" />
+                  </label>
+                  <label class="theme-color-field">
+                    <span>Menu</span>
+                    <input name="brand_sidebar_color" type="color" value="#101827" />
+                  </label>
+                </div>
               </div>
               <label class="full-row">
                 Sedes / sucursales
@@ -1282,10 +1284,10 @@
     </main>
 
     <script>
-      window.__IA_FACIAL_BUILD = "2026061702";
+      window.__IA_FACIAL_BUILD = "2026061703";
       console.info("[IA Facial] build", window.__IA_FACIAL_BUILD);
     </script>
-    <script src="./register-scanner.js?v=2026061702"></script>
-    <script src="./app.js?v=2026061702"></script>
+    <script src="./register-scanner.js?v=2026061703"></script>
+    <script src="./app.js?v=2026061703"></script>
   </body>
 </html>

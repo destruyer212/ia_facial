@@ -345,6 +345,7 @@ showInactiveUsersInput?.addEventListener("change", renderRegisteredUsers);
 userPhotoInput?.addEventListener("change", handleQuickPhotoSelected);
 organizationForm?.addEventListener("submit", submitOrganizationForm);
 organizationForm?.addEventListener("input", handleOrganizationThemePreview);
+organizationForm?.addEventListener("change", handleOrganizationThemePreview);
 areaForm?.addEventListener("submit", submitAreaForm);
 positionForm?.addEventListener("submit", submitPositionForm);
 deviceForm?.addEventListener("submit", submitDeviceForm);
@@ -369,6 +370,10 @@ document.querySelector("#reload-schedules")?.addEventListener("click", () => {
 });
 
 initApiBaseDefault();
+const persistedBrandTheme = loadPersistedBrandTheme();
+if (persistedBrandTheme) {
+  applyBrandTheme(persistedBrandTheme);
+}
 refreshAll();
 refreshAdminOverview().catch(() => {});
 refreshScheduleOverview().catch(() => {});
@@ -558,14 +563,66 @@ function applyBrandTheme(org) {
   const primary = normalizeHexColor(org?.brand_primary_color, "#0d9488");
   const accent = normalizeHexColor(org?.brand_accent_color, "#2563eb");
   const sidebar = normalizeHexColor(org?.brand_sidebar_color, "#101827");
+  const primaryLight = tintHex(primary, 42);
+  const primaryDark = shadeHex(primary, -22);
   const root = document.documentElement;
+
   root.style.setProperty("--accent", primary);
-  root.style.setProperty("--accent-hover", shadeHex(primary, -18));
-  root.style.setProperty("--accent-soft", rgbaHex(primary, 0.16));
-  root.style.setProperty("--accent-glow", rgbaHex(primary, 0.22));
+  root.style.setProperty("--accent-hover", primaryDark);
+  root.style.setProperty("--accent-soft", rgbaHex(primary, 0.14));
+  root.style.setProperty("--accent-glow", rgbaHex(primary, 0.28));
   root.style.setProperty("--blue", accent);
   root.style.setProperty("--blue-soft", rgbaHex(accent, 0.14));
   root.style.setProperty("--sidebar-bg", sidebar);
+  root.style.setProperty("--sidebar-active", rgbaHex(primary, 0.14));
+  root.style.setProperty("--sidebar-active-border", rgbaHex(primary, 0.24));
+  root.style.setProperty("--sidebar-active-icon", rgbaHex(primary, 0.22));
+  root.style.setProperty("--nav-active-color", tintHex(primary, 58));
+  root.style.setProperty("--brand-logo-gradient", `linear-gradient(145deg, ${primaryLight} 0%, ${primary} 100%)`);
+  root.style.setProperty("--brand-logo-shadow", rgbaHex(primary, 0.35));
+  root.style.setProperty(
+    "--brand-btn-gradient",
+    `linear-gradient(135deg, ${tintHex(primary, 18)} 0%, ${primary} 52%, ${primaryDark} 100%)`,
+  );
+  root.style.setProperty("--ring-accent", rgbaHex(primary, 0.82));
+  root.style.setProperty("--ring-accent-soft", rgbaHex(primary, 0.38));
+  root.style.setProperty("--scan-ring", rgbaHex(primary, 0.85));
+
+  persistBrandTheme({
+    brand_primary_color: primary,
+    brand_accent_color: accent,
+    brand_sidebar_color: sidebar,
+  });
+}
+
+const BRAND_THEME_STORAGE_KEY = "ia_facial_brand_theme";
+
+function persistBrandTheme(org) {
+  if (!org) return;
+  try {
+    localStorage.setItem(
+      BRAND_THEME_STORAGE_KEY,
+      JSON.stringify({
+        brand_primary_color: org.brand_primary_color,
+        brand_accent_color: org.brand_accent_color,
+        brand_sidebar_color: org.brand_sidebar_color,
+      }),
+    );
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function loadPersistedBrandTheme() {
+  try {
+    const raw = localStorage.getItem(BRAND_THEME_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 function normalizeHexColor(value, fallback) {
@@ -597,6 +654,10 @@ function shadeHex(hex, percent) {
   return `#${[shift(r), shift(g), shift(b)]
     .map((channel) => channel.toString(16).padStart(2, "0"))
     .join("")}`;
+}
+
+function tintHex(hex, percent) {
+  return shadeHex(hex, Math.abs(percent));
 }
 
 function renderAreasAndPositions() {
@@ -831,6 +892,7 @@ async function submitOrganizationForm(event) {
     state.admin.organization = data.organization;
     state.adminFingerprint = "";
     renderOrganizationForm();
+    applyBrandTheme(data.organization);
     showToast(data.message || "Organizacion guardada", 4000, "success");
   } catch (error) {
     showToast(parseApiError(error), 6000, "error");
