@@ -52,6 +52,7 @@ const state = {
   refreshTimer: null,
   lastSyncAt: null,
   auth: null,
+  pendingDeleteFace: null,
 };
 
 const DEFAULT_API_BASE = "https://104.238.215.26";
@@ -322,6 +323,8 @@ const scanResultDetail = document.querySelector("#scan-result-detail");
 const userEditDialog = document.querySelector("#user-edit-dialog");
 const userEditForm = document.querySelector("#user-edit-form");
 const userEditShiftSelect = document.querySelector("#user-edit-shift-code");
+const deleteUserDialog = document.querySelector("#delete-user-dialog");
+const deleteUserForm = document.querySelector("#delete-user-form");
 const showInactiveUsersInput = document.querySelector("#show-inactive-users");
 const userPhotoInput = document.querySelector("#user-photo-input");
 const eventEditDialog = document.querySelector("#event-edit-dialog");
@@ -516,6 +519,8 @@ initSpeechSynthesis();
 document.querySelector("#registered-users")?.addEventListener("click", handleUserCardAction);
 userEditForm?.addEventListener("submit", submitUserEdit);
 document.querySelector("#user-edit-cancel")?.addEventListener("click", closeUserEditDialog);
+deleteUserForm?.addEventListener("submit", submitDeleteUserDialog);
+document.querySelector("#delete-user-cancel")?.addEventListener("click", closeDeleteUserDialog);
 showInactiveUsersInput?.addEventListener("change", renderRegisteredUsers);
 userPhotoInput?.addEventListener("change", handleQuickPhotoSelected);
 organizationSelect?.addEventListener("change", handleOrganizationSwitch);
@@ -2606,22 +2611,46 @@ async function submitUserEdit(event) {
 }
 
 async function deleteEmployeePermanently(face) {
-  const confirmed = window.confirm(
-    `¿Eliminar definitivamente a ${face.name} (${face.person_id})?\n\n` +
-      "Se borrara TODO: rostro, embeddings, fotos, marcas de asistencia e incidencias.\n" +
-      "Esta accion no se puede deshacer.",
-  );
-  if (!confirmed) return;
+  if (!deleteUserDialog || !deleteUserForm) return;
+  state.pendingDeleteFace = face;
+  const idLabel = document.querySelector("#delete-user-id-label");
+  const message = document.querySelector("#delete-user-message");
+  if (idLabel) {
+    idLabel.textContent = `${face.name} - ${face.person_id}`;
+  }
+  if (message) {
+    message.textContent = "Esta accion no se puede deshacer.";
+  }
+  deleteUserForm.reset();
+  deleteUserDialog.showModal();
+  deleteUserForm.confirmation?.focus();
+  return;
+}
 
-  const typed = window.prompt(
-    `Escribe ELIMINAR para confirmar la eliminacion de ${face.name}:`,
-    "",
-  );
-  if (typed?.trim().toUpperCase() !== "ELIMINAR") {
-    showToast("Eliminacion cancelada.", 4000, "info");
+function closeDeleteUserDialog() {
+  state.pendingDeleteFace = null;
+  deleteUserDialog?.close();
+}
+
+async function submitDeleteUserDialog(event) {
+  event.preventDefault();
+  const face = state.pendingDeleteFace;
+  if (!face || !deleteUserForm) {
+    closeDeleteUserDialog();
+    return;
+  }
+  const confirmation = String(new FormData(deleteUserForm).get("confirmation") || "")
+    .trim()
+    .toUpperCase();
+  if (confirmation !== "ELIMINAR") {
+    showToast("Escribe ELIMINAR para confirmar.", 4000, "error");
+    deleteUserForm.confirmation?.focus();
     return;
   }
 
+  const submitBtn = deleteUserForm.querySelector('[type="submit"]');
+  const defaultLabel = submitBtn?.dataset.defaultLabel || submitBtn?.textContent || "Eliminar definitivamente";
+  setButtonLoading(submitBtn, true, "Eliminando...", defaultLabel);
   try {
     showToast("Eliminando usuario...", 5000, "info");
     const data = await requestJson(
@@ -2634,10 +2663,13 @@ async function deleteEmployeePermanently(face) {
     renderRegisteredUsers();
     updateFacesCountLabel();
     await Promise.all([refreshEvents(), refreshIncidents()]);
+    closeDeleteUserDialog();
     showToast(data.message || "Usuario eliminado definitivamente", 6000, "success");
   } catch (error) {
     showToast(parseApiError(error), 7000, "error");
     await refreshFaces();
+  } finally {
+    setButtonLoading(submitBtn, false, "", defaultLabel);
   }
 }
 

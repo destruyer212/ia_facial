@@ -11,7 +11,7 @@
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=2026071301" />
+    <link rel="stylesheet" href="./styles.css?v=2026071302" />
   </head>
   <body>
     <section id="login-screen" class="login-screen" aria-labelledby="login-title">
@@ -1351,16 +1351,38 @@
         </form>
       </dialog>
 
+      <dialog id="delete-user-dialog" class="user-dialog danger-dialog">
+        <form id="delete-user-form" class="user-dialog-form">
+          <div class="dialog-header">
+            <span class="danger-dialog-icon" aria-hidden="true">!</span>
+            <div>
+              <h3>Eliminar empleado</h3>
+              <p id="delete-user-id-label" class="user-edit-id"></p>
+            </div>
+          </div>
+          <p id="delete-user-message" class="danger-dialog-message"></p>
+          <label>
+            Confirmacion
+            <input name="confirmation" autocomplete="off" placeholder="Escribe ELIMINAR" required />
+            <small class="field-hint">Se borraran rostro, embeddings, fotos, marcas de asistencia e incidencias.</small>
+          </label>
+          <div class="user-dialog-actions">
+            <button class="danger-btn" type="submit">Eliminar definitivamente</button>
+            <button class="ghost-btn" type="button" id="delete-user-cancel">Cancelar</button>
+          </div>
+        </form>
+      </dialog>
+
       <input id="user-photo-input" type="file" accept="image/*" hidden />
 
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </main>
 
     <script>
-      window.__IA_FACIAL_BUILD = "2026071301";
+      window.__IA_FACIAL_BUILD = "2026071302";
       console.info("[IA Facial] build", window.__IA_FACIAL_BUILD);
     </script>
-    <script src="./register-scanner.js?v=2026071301"></script>
-    <script src="./app.js?v=2026071301"></script>
+    <script src="./register-scanner.js?v=2026071302"></script>
+    <script src="./app.js?v=2026071302"></script>
   </body>
 </html>

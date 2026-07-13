@@ -2681,6 +2681,34 @@ input[readonly] {
   letter-spacing: 0;
 }
 
+.danger-dialog .dialog-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.danger-dialog-icon {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: var(--radius-md);
+  background: var(--red-soft);
+  color: var(--red);
+  font-weight: 900;
+}
+
+.danger-dialog-message {
+  padding: 12px;
+  border: 1px solid rgba(220, 38, 38, 0.18);
+  border-radius: var(--radius-md);
+  background: var(--red-soft);
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .user-edit-id {
   margin-top: 4px;
   color: var(--ink-muted);
