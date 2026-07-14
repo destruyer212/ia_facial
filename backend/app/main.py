@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import JSONResponse
 from psycopg import OperationalError
 
@@ -35,6 +36,17 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router, prefix=settings.api_v1_prefix)
 
+    @app.get("/api/openapi.json", include_in_schema=False)
+    def public_openapi_schema() -> dict:
+        return app.openapi()
+
+    @app.get("/api/docs", include_in_schema=False)
+    def public_swagger_docs():
+        return get_swagger_ui_html(
+            openapi_url="/api/openapi.json",
+            title=f"{settings.app_name} - Swagger",
+        )
+
     @app.exception_handler(OperationalError)
     async def database_unavailable_handler(
         _request: Request,
@@ -61,6 +73,7 @@ def create_app() -> FastAPI:
             "service": settings.app_name,
             "status": "running",
             "docs": "/docs",
+            "public_docs": "/api/docs",
             "api": settings.api_v1_prefix,
         }
 
